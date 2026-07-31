@@ -47,6 +47,34 @@ distintas opacidades (ver componentes).
 
 ---
 
+## 1B. CONSTANTES DE NEGOCIO (fijas y reutilizables en TODOS los posts)
+
+Datos verificados de la administración. Se usan siempre, **sin pedir
+confirmación**, y **no** se modifican salvo que el usuario lo indique explícitamente.
+
+- **Nombre:** Lotería Las Arenas — Administración Oficial nº 336.
+- **Dirección:** C.C. Arenas de Barcelona · Gran Via de les Corts Catalanes,
+  373-385, L-S28, 08015 Barcelona.
+- **Teléfono:** 934 247 349.
+- **URL de compra (CTA principal):**
+  `https://www.loterialasarenas.com/comprar-loteria-de-navidad-online`
+  → Si el post trae su propia `URL DE LA PÁGINA`, **esa manda** para ese post.
+- **URL de comprobación:** `https://www.loterialasarenas.com/comprobar-loteria-nacional`
+- **Voz recurrente / testimonio:** **Víctor**, el lotero de referencia de la
+  administración. Se puede incluir su cita en todos los posts (ver §8.8), firmada
+  como "Víctor — Lotería Las Arenas, Adm. nº 336 · Barcelona".
+- **Historial de premios (prueba social) — constante fija:**
+  - ★ 2023 — El Gordo y cuatro quintos premios de la Lotería de Navidad.
+  - ★ 2024 — Tercer, cuarto y quinto premios de la Lotería de Navidad.
+  - ★ 2025 — Segundo premio de la Lotería del Niño.
+  Datos reales y verificables. Solo se actualizan cuando el usuario lo indique.
+
+⚠️ El **resto** de datos (fechas de sorteo, precios del décimo, importes de premio,
+plazos, condiciones) **NO son constantes**: salen del input de cada post. Si falta
+uno, va a hueco `[[FALTA: …]]` (ver §14).
+
+---
+
 ## 2. TIPOGRAFÍA
 
 - Fuente única: `font-family:Arial,sans-serif;` declarada en el wrapper exterior
@@ -223,17 +251,35 @@ garantías (`Décimo 20€ · Sin comisiones · … · Administración Oficial n
 </div>
 ```
 
+### 8.12 COLETILLA LEGAL +18 (obligatoria — va SIEMPRE, justo DESPUÉS del footer)
+
+Última línea del artículo, dentro del contenedor de 660px, después del `</div>`
+del footer:
+```html
+<p style="text-align:center;font-size:11px;color:rgba(242,242,242,0.4);line-height:1.8;margin:0.75rem 0 0;">© Lotería Las Arenas · +18 · Juega con responsabilidad · <a style="color:rgba(202,166,105,0.7);text-decoration:none;" href="https://www.juegoseguro.es" target="_blank" rel="noopener">www.juegoseguro.es</a></p>
+```
+
 ---
 
-## 9. IMÁGENES
+## 9. IMÁGENES → placeholder dorado punteado (NO se inventan URLs)
 
-- Estilo fijo: `style="display:block;width:100%;height:auto;border-radius:8px;"`.
-- `alt` **descriptivo y con marca**. Ejemplos reales:
-  - `"Lotería de Navidad 2026 · Lotería Las Arenas"`
-  - `"Pantalla de compra de Lotería de Navidad 2026 en Lotería Las Arenas"`
-- Las imágenes de la plantilla apuntan a `https://www.loterialasarenas.com/archivos/uploads/…`.
-  ⚠️ **No inventar URLs de imagen.** Si no se aporta una URL real, dejar
-  `[[FALTA: URL de imagen — hero]]` en el `src` (o omitir el bloque de imagen).
+**Nunca** se inventa una URL de imagen ni se usa `[[FALTA]]` para imágenes. En cada
+punto donde iría una imagen (hero, capturas, banners) se coloca un **bloque
+placeholder de borde discontinuo dorado**. El equipo sustituye la imagen a mano en
+GAdmin; el bloque solo marca visualmente dónde va y qué debe mostrar.
+
+```html
+<div style="border:2px dashed rgba(202,166,105,0.4);border-radius:8px;padding:2.5rem 1rem;text-align:center;background:rgba(202,166,105,0.04);margin-bottom:1.5rem;">
+<div style="font-size:22px;margin-bottom:0.4rem;">🖼️</div>
+<p style="font-size:11px;letter-spacing:0.15em;text-transform:uppercase;color:rgba(202,166,105,0.7);font-weight:bold;margin:0;">Imagen · breve descripción de lo que va aquí</p>
+</div>
+```
+
+- La descripción interna es una pista corta de qué imagen colocar (p. ej. "Banner
+  Lotería del Niño 2027"), derivada del tema; no es un dato de negocio inventado.
+- Si el usuario **sí** aporta una URL real de imagen, se usa un `<img>` normal con
+  `style="display:block;width:100%;height:auto;border-radius:8px;"` y `alt`
+  descriptivo con marca (p. ej. `"Lotería del Niño 2027 · Lotería Las Arenas"`).
 
 ---
 
@@ -288,8 +334,8 @@ garantías (`Décimo 20€ · Sin comisiones · … · Administración Oficial n
   dato clave, dejar el hueco visible: `[[FALTA: precio del décimo]]`. Mejor un
   hueco que un premio inventado publicado.
 - **Sin promesas de ganar** ni afirmaciones sobre probabilidades de acierto.
-- **Juego responsable, +18.** (Ver pregunta abierta nº 4 más abajo: decidir si se
-  añade una coletilla explícita, ya que la plantilla actual no la muestra.)
+- **Juego responsable, +18.** Cada post cierra **siempre** con la coletilla legal
+  (ver §8.12), justo después del footer de Las Arenas.
 - Extensión objetivo: **900–1.400 palabras** salvo indicación en contrario. (La
   plantilla de ejemplo es una "pillar page" larga, ~2.500 palabras, como techo.)
 
