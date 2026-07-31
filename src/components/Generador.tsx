@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type Idioma = "es" | "ca" | "en";
 
@@ -89,6 +89,21 @@ export default function Generador({ bloqueado }: { bloqueado: boolean }) {
   const [copiado, setCopiado] = useState<string | null>(null);
 
   const inputFile = useRef<HTMLInputElement | null>(null);
+
+  // Precarga desde "Duplicar" del historial.
+  useEffect(() => {
+    try {
+      const bruto = sessionStorage.getItem("duplicar-llarenas");
+      if (!bruto) return;
+      sessionStorage.removeItem("duplicar-llarenas");
+      const d = JSON.parse(bruto) as { texto?: string; url?: string; idioma?: string };
+      if (d.texto) setTexto(d.texto);
+      if (d.url) setUrl(d.url);
+      if (d.idioma === "es" || d.idioma === "ca" || d.idioma === "en") setIdioma(d.idioma);
+    } catch {
+      /* nada */
+    }
+  }, []);
 
   const ocupado = fase === "detectando" || fase === "trabajando" || subiendo;
   const hayEntrada = archivos.length > 0 || texto.trim().length > 0;

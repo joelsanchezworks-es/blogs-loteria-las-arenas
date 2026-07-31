@@ -137,3 +137,84 @@ export function tituloDesdeHtml(html: string): string | null {
   if (!m) return null;
   return m[1].replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").trim() || null;
 }
+
+/* ── Lectura, borrado y filtrado (historial) ── */
+
+const ID_VALIDO = /^[\w.\-]+$/;
+
+/** Lee meta.json + post.html de un post. */
+export async function leerPost(id: string): Promise<{ meta: Meta; html: string } | null> {
+  if (!ID_VALIDO.test(id)) return null;
+  const dir = path.join(DIR_HISTORIAL, id);
+  try {
+    const meta = JSON.parse(await fs.readFile(path.join(dir, "meta.json"), "utf8")) as Meta;
+    const html = await fs.readFile(path.join(dir, "post.html"), "utf8");
+    return { meta, html };
+  } catch {
+    return null;
+  }
+}
+
+/** Borra la carpeta de un post y lo quita del índice. */
+export async function borrarPost(id: string): Promise<boolean> {
+  if (!ID_VALIDO.test(id)) return false;
+  const dir = path.join(DIR_HISTORIAL, id);
+  try {
+    await fs.rm(dir, { recursive: true, force: true });
+  } catch {
+    return false;
+  }
+  const idx = await leerIndice();
+  const posts = idx.posts.filter((p) => p.id !== id);
+  await fs.writeFile(
+    RUTA_INDEX,
+    JSON.stringify({ actualizado: new Date().toISOString(), posts }, null, 2) + "\n",
+    "utf8",
+  );
+  return true;
+}
+
+export type FiltrosHistorial = {
+  q?: string;
+  idioma?: string;
+  desde?: string; // YYYY-MM-DD
+  hasta?: string; // YYYY-MM-DD
+};
+
+/** Lista el índice aplicando filtros; la búsqueda `q` mira título Y contenido. */
+export async function listarConFiltros(
+  f: FiltrosHistorial,
+): Promise<{ posts: EntradaIndice[]; total: number; mesActual: number }> {
+  const idx = await leerIndice();
+  const total = idx.posts.length;
+
+  const ahora = new Date();
+  const claveMes = `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, "0")}`;
+  const mesActual = idx.posts.filter((p) => (p.fecha || "").slice(0, 7) === claveMes).length;
+
+  let posts = idx.posts;
+  if (f.idioma) posts = posts.filter((p) => p.idioma === f.idioma);
+  if (f.desde) posts = posts.filter((p) => (p.fecha || "").slice(0, 10) >= f.desde!);
+  if (f.hasta) posts = posts.filter((p) => (p.fecha || "").slice(0, 10) <= f.hasta!);
+
+  const q = (f.q || "").trim().toLowerCase();
+  if (q) {
+    const filtrados: EntradaIndice[] = [];
+    for (const p of posts) {
+      const enMeta = `${p.titulo} ${p.metaTitle} ${p.metaDescription}`.toLowerCase().includes(q);
+      if (enMeta) {
+        filtrados.push(p);
+        continue;
+      }
+      try {
+        const html = await fs.readFile(path.join(DIR_HISTORIAL, p.id, "post.html"), "utf8");
+        if (html.replace(/<[^>]+>/g, " ").toLowerCase().includes(q)) filtrados.push(p);
+      } catch {
+        /* sin contenido legible */
+      }
+    }
+    posts = filtrados;
+  }
+
+  return { posts, total, mesActual };
+}
