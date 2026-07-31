@@ -1,15 +1,32 @@
 import Encabezado from "@/components/Encabezado";
+import AvisoEntorno from "@/components/AvisoEntorno";
+import { comprobarApiKey } from "@/lib/guard";
+import { verificarCli } from "@/lib/claude";
+
+export const dynamic = "force-dynamic";
 
 /**
- * FASE 1 — shell del generador (dos columnas). La interactividad (subida de
- * archivos, lanzamiento del CLI, salida en vivo) se conecta en fases posteriores.
+ * Shell del generador (dos columnas) + aviso de entorno en el arranque.
+ * La interactividad (subida de archivos, lanzamiento del CLI, salida en vivo)
+ * se conecta en fases posteriores.
  */
-export default function Home() {
+export default async function Home() {
+  const apiKey = comprobarApiKey();
+  const cli = await verificarCli();
+
   return (
     <div className="min-h-screen">
       <Encabezado activo="generador" />
 
       <main className="mx-auto max-w-[1400px] px-5 py-6 sm:px-8">
+        <AvisoEntorno
+          hayApiKey={apiKey.hayApiKey}
+          mensajeApiKey={apiKey.mensaje}
+          cliDisponible={cli.disponible}
+          cliVersion={cli.version}
+          cliError={cli.error}
+        />
+
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           {/* ── COLUMNA IZQUIERDA · ENTRADA ── */}
           <section className="rounded-xl border border-borde bg-panel p-5 sm:p-6">
