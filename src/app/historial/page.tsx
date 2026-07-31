@@ -38,6 +38,7 @@ export default function HistorialPage() {
   const [hasta, setHasta] = useState("");
 
   const [verId, setVerId] = useState<string | null>(null);
+  const [sel, setSel] = useState<Set<string>>(new Set());
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -115,10 +116,53 @@ export default function HistorialPage() {
     async (id: string) => {
       if (!window.confirm(`¿Borrar "${id}"? Esta acción no se puede deshacer.`)) return;
       await fetch(`/api/historial/${id}`, { method: "DELETE" }).catch(() => {});
+      setSel((prev) => {
+        const n = new Set(prev);
+        n.delete(id);
+        return n;
+      });
       cargar();
     },
     [cargar],
   );
+
+  const alternarSel = (id: string) =>
+    setSel((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+
+  const todosVisibles = posts.length > 0 && posts.every((p) => sel.has(p.id));
+  const alternarTodos = () =>
+    setSel((prev) => {
+      const n = new Set(prev);
+      if (posts.every((p) => n.has(p.id))) posts.forEach((p) => n.delete(p.id));
+      else posts.forEach((p) => n.add(p.id));
+      return n;
+    });
+
+  const numSel = posts.filter((p) => sel.has(p.id)).length;
+
+  const descargarZipSel = async () => {
+    const ids = posts.filter((p) => sel.has(p.id)).map((p) => p.id);
+    if (ids.length === 0) return;
+    const resp = await fetch("/api/zip", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    });
+    if (!resp.ok) return;
+    const blob = await resp.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "posts-loteria-las-arenas.zip";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+  };
 
   return (
     <div className="min-h-screen">
@@ -184,10 +228,33 @@ export default function HistorialPage() {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-borde">
-            <table className="w-full min-w-[640px] border-collapse text-sm">
+          <>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <p className="text-xs text-tenue">
+                {numSel > 0 ? `${numSel} seleccionados` : "Selecciona posts para descargarlos juntos"}
+              </p>
+              <button
+                type="button"
+                onClick={descargarZipSel}
+                disabled={numSel === 0}
+                className="rounded-md border border-borde px-3 py-1.5 text-xs font-medium text-claro transition-colors hover:border-oro/50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Descargar selección (ZIP)
+              </button>
+            </div>
+            <div className="overflow-x-auto rounded-xl border border-borde">
+            <table className="w-full min-w-[680px] border-collapse text-sm">
               <thead>
                 <tr className="border-b border-borde bg-panel text-left text-[10px] uppercase tracking-[0.15em] text-tenue">
+                  <th className="px-3 py-2.5">
+                    <input
+                      type="checkbox"
+                      checked={todosVisibles}
+                      onChange={alternarTodos}
+                      className="h-4 w-4 accent-[#C9A961]"
+                      aria-label="Seleccionar todos"
+                    />
+                  </th>
                   <th className="px-3 py-2.5 font-semibold">Fecha</th>
                   <th className="px-3 py-2.5 font-semibold">Título</th>
                   <th className="px-3 py-2.5 font-semibold">Idioma</th>
@@ -198,6 +265,15 @@ export default function HistorialPage() {
               <tbody>
                 {posts.map((p) => (
                   <tr key={p.id} className="border-b border-borde/60 last:border-0 hover:bg-panel/50">
+                    <td className="px-3 py-2.5">
+                      <input
+                        type="checkbox"
+                        checked={sel.has(p.id)}
+                        onChange={() => alternarSel(p.id)}
+                        className="h-4 w-4 accent-[#C9A961]"
+                        aria-label={`Seleccionar ${p.titulo}`}
+                      />
+                    </td>
                     <td className="whitespace-nowrap px-3 py-2.5 text-tenue">{fmtFecha(p.fecha)}</td>
                     <td className="px-3 py-2.5">
                       <div className="flex items-center gap-2">
@@ -233,7 +309,8 @@ export default function HistorialPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+            </div>
+          </>
         )}
       </main>
 

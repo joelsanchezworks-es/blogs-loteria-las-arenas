@@ -10,6 +10,7 @@
     "generar": "node scripts/generar.mjs"
   },
   "dependencies": {
+    "fflate": "^0.8.3",
     "mammoth": "^1.12.0",
     "next": "^15",
     "react": "^19",

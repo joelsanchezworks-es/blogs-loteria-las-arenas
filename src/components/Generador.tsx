@@ -325,7 +325,28 @@ export default function Generador({ bloqueado }: { bloqueado: boolean }) {
     URL.revokeObjectURL(a.href);
   }, []);
 
+  const descargarZip = useCallback(async (ids: string[]) => {
+    if (ids.length === 0) return;
+    const resp = await fetch("/api/zip", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids }),
+    });
+    if (!resp.ok) return;
+    const blob = await resp.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "posts-loteria-las-arenas.zip";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(a.href);
+  }, []);
+
   const jobSel = trabajos[seleccion];
+  const idsListos = trabajos
+    .filter((t) => t.resultado)
+    .map((t) => t.resultado!.id);
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -497,6 +518,21 @@ export default function Generador({ bloqueado }: { bloqueado: boolean }) {
 
         {fase === "trabajando" && trabajos.length > 0 && (
           <div>
+            {trabajos.length > 1 && (
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <p className="text-xs text-tenue">
+                  {idsListos.length}/{trabajos.length} listos
+                </p>
+                <button
+                  type="button"
+                  onClick={() => descargarZip(idsListos)}
+                  disabled={idsListos.length === 0}
+                  className="rounded-md border border-borde px-3 py-1.5 text-xs font-medium text-claro transition-colors hover:border-oro/50 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Descargar todos (ZIP)
+                </button>
+              </div>
+            )}
             {trabajos.length > 1 && (
               <ListaTrabajos trabajos={trabajos} seleccion={seleccion} onSelect={setSeleccion} />
             )}
