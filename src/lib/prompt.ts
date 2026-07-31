@@ -1,9 +1,13 @@
-/** Construcción del prompt de generación que se pasa al CLI por stdin. */
+/** Construcción de los prompts que se pasan al CLI por stdin. */
 
 export type Idioma = "es" | "ca" | "en";
 
+export type FuentePrompt =
+  | { tipo: "texto"; texto: string }
+  | { tipo: "archivo"; ruta: string };
+
 export type EntradaPrompt = {
-  texto: string;
+  fuente: FuentePrompt;
   url: string | null;
   idioma: Idioma;
 };
@@ -21,6 +25,16 @@ const IDIOMA_LARGO: Record<Idioma, string> = {
   en: "inglés natural",
 };
 
+function bloqueDatos(fuente: FuentePrompt): string {
+  if (fuente.tipo === "archivo") {
+    return `Los datos de este post están en este archivo. Léelo con tu herramienta Read y usa ÚNICAMENTE la información que contenga (no inventes nada):
+${fuente.ruta}`;
+  }
+  return `"""
+${fuente.texto}
+"""`;
+}
+
 export function construirPrompt(entrada: EntradaPrompt, rutas: RutasPrompt): string {
   const urlLinea = entrada.url
     ? entrada.url
@@ -35,9 +49,7 @@ PASO 1 — Lee estos dos archivos para interiorizar el estándar (OBLIGATORIO an
 Replica el sistema visual de la plantilla: TODO con estilos inline (cero clases, cero <style>), misma paleta (#1b1d39 / #13152a / #caa669 / #f2f2f2), mismos módulos (hero, aviso de fecha, cajas, tabla de premios si procede, cita de Víctor, FAQ, CTA final, footer) y mismas constantes de negocio (dirección, teléfono, nº 336, historial de premios 2023-2025).
 
 DATOS DE ESTE POST (ÚNICA fuente de datos; no inventes nada):
-"""
-${entrada.texto}
-"""
+${bloqueDatos(entrada.fuente)}
 
 - Idioma de salida: ${IDIOMA_LARGO[entrada.idioma]}. Escribe TODO el contenido en este idioma.
 - URL de la página (destino de los CTA de compra): ${urlLinea}
@@ -46,7 +58,7 @@ REGLAS DURAS:
 - Devuelve SOLO el HTML del cuerpo: empieza por el <div> wrapper exterior y termina cerrando los dos <div> + la coletilla legal +18. NADA de <!DOCTYPE>, <html>, <head>, <body>, ni vallas markdown (nada de \`\`\`), ni comentarios extra.
 - Extensión: 900–1400 palabras salvo que las instrucciones pidan otra cosa.
 - Estructura: entradilla que enganche, un <h2> por bloque temático (cada uno con su barrita dorada debajo), párrafos cortos, listas con flechas "→" solo si aportan, y una caja de CTA final grande.
-- NO INVENTES DATOS. Fechas de sorteo, precios del décimo, importes de premio, plazos y condiciones SOLO pueden salir del bloque de datos de arriba. Si falta un dato clave, deja el hueco visible como [[FALTA: descripción]] (p. ej. [[FALTA: precio del décimo]]). Prefiere el hueco a inventar un dato.
+- NO INVENTES DATOS. Fechas de sorteo, precios del décimo, importes de premio, plazos y condiciones SOLO pueden salir de los datos de arriba. Si falta un dato clave, deja el hueco visible como [[FALTA: descripción]] (p. ej. [[FALTA: precio del décimo]]). Prefiere el hueco a inventar un dato.
 - Imágenes: NO inventes URLs. Usa el bloque placeholder dorado punteado (reglas §9) con una descripción corta de qué imagen va ahí.
 - Constantes de negocio: úsalas siempre tal cual están en las reglas (§1B). La cita de Víctor puede incluirse como voz recurrente.
 - Cierre OBLIGATORIO: footer de Las Arenas y, como última línea, la coletilla legal +18 (§8.12), en el idioma del post.
@@ -77,4 +89,25 @@ SALIDA — escribe DOS archivos con tu herramienta Write (sobrescribe si existen
 }
 
 Escribe primero post.html y después meta.json, y entonces TERMINA de inmediato. Lo que cuenta son los dos archivos, no lo que imprimas por pantalla.`;
+}
+
+/** Prompt de detección de temas (Modo B): separar los temas de un archivo. */
+export function construirPromptDeteccion(rutaArchivo: string, rutaSalida: string): string {
+  return `Eres el editor del blog de Lotería Las Arenas. Lee este archivo con tu herramienta Read:
+${rutaArchivo}
+
+Contiene VARIOS temas para el blog (por ejemplo un calendario editorial, una lista de sorteos o varios temas seguidos). Detéctalos y sepáralos en una lista.
+
+Escribe con tu herramienta Write, en esta ruta exacta, un JSON válido (y NADA más):
+${rutaSalida}
+
+El JSON debe ser un array de objetos, uno por tema, con estas claves:
+[
+  { "titulo": "título breve y claro del tema", "datosClave": "los datos esenciales del tema en una o dos frases: fechas, precios, importes, condiciones… tal como aparecen en el archivo" }
+]
+
+Reglas:
+- NO inventes datos: usa solo lo que aparezca en el archivo.
+- NO generes todavía ningún post; solo la lista de temas.
+- No uses la herramienta Bash. Escribe solo ese archivo JSON y termina.`;
 }

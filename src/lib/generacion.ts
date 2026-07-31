@@ -1,7 +1,8 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { ejecutarClaude } from "./claude";
-import { construirPrompt, type Idioma } from "./prompt";
+import { extraerTexto } from "./archivos";
+import { construirPrompt, type FuentePrompt, type Idioma } from "./prompt";
 import {
   DIR_REFERENCIAS,
   RAIZ,
@@ -15,14 +16,17 @@ import {
 } from "./historial";
 import { crearSlug, fechaCorta, primeraLinea, slugDesdeUrl } from "./slug";
 
+export type FuenteGeneracion =
+  | { tipo: "texto"; texto: string }
+  | { tipo: "archivo"; ruta: string; nombre: string };
+
 export type EntradaGeneracion = {
-  texto: string;
+  fuente: FuenteGeneracion;
   url: string | null;
   idioma: Idioma;
   modo?: "texto" | "archivo" | "mixto";
-  /** Ruta temporal del archivo original a copiar en la carpeta (fases de archivo). */
+  /** Ruta temporal del archivo original a copiar en la carpeta del post. */
   archivoOrigenTmp?: string | null;
-  /** Nombre a usar para la copia del original. */
   archivoOrigenNombre?: string | null;
 };
 
@@ -31,11 +35,9 @@ export type Emisor = (evento: Record<string, unknown>) => void;
 function str(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
-
 function recortar(v: string, max: number): string {
   return v.length > max ? v.slice(0, max).trim() : v;
 }
-
 function obj(v: unknown): Record<string, unknown> {
   return v && typeof v === "object" ? (v as Record<string, unknown>) : {};
 }
@@ -68,6 +70,33 @@ export function describirEvento(ev: Record<string, unknown>): string | null {
   return null;
 }
 
+/** Lanza el CLI con un prompt y devuelve el HTML válido escrito (o null) + el resultado. */
+async function lanzar(
+  prompt: string,
+  rutaPost: string,
+  emitir: Emisor,
+  signal?: AbortSignal,
+): Promise<{ html: string | null; error?: string; okCli: boolean }> {
+  const res = await ejecutarClaude(
+    prompt,
+    { cwd: RAIZ, signal },
+    {
+      onEvento: (ev) => {
+        const linea = describirEvento(ev);
+        if (linea) emitir({ tipo: "paso", texto: linea });
+      },
+    },
+  );
+  let bruto: string | null = null;
+  try {
+    bruto = await fs.readFile(rutaPost, "utf8");
+  } catch {
+    bruto = null;
+  }
+  const html = bruto ? limpiarHtml(bruto) : "";
+  return { html: html || null, error: res.error, okCli: res.ok };
+}
+
 /**
  * Ejecuta un trabajo de generación completo, emitiendo eventos de progreso.
  * No lanza: cualquier fallo se comunica con un evento { tipo:"fin", ok:false }.
@@ -79,12 +108,14 @@ export async function ejecutarTrabajo(
   try {
     emitir({ tipo: "estado", valor: "generando" });
 
-    // 1) Carpeta única
+    // 1) Slug + carpeta única
     const fecha = fechaCorta();
-    const slug =
+    const slugBase =
       (entrada.url ? slugDesdeUrl(entrada.url) : null) ||
-      crearSlug(primeraLinea(entrada.texto));
-    const { id, dir } = await crearCarpetaUnica(fecha, slug);
+      (entrada.fuente.tipo === "texto"
+        ? crearSlug(primeraLinea(entrada.fuente.texto))
+        : crearSlug(path.parse(entrada.fuente.nombre).name));
+    const { id, dir } = await crearCarpetaUnica(fecha, slugBase);
     emitir({ tipo: "paso", texto: `Carpeta: historial/${id}` });
 
     // 2) Copia del archivo original, si lo hubo
@@ -97,52 +128,68 @@ export async function ejecutarTrabajo(
         await fs.copyFile(entrada.archivoOrigenTmp, destino);
         archivoOrigen = path.basename(destino);
       } catch {
-        // si falla la copia, seguimos sin bloquear la generación
+        /* si falla la copia, seguimos sin bloquear */
       }
     }
 
-    // 3) Prompt + ejecución del CLI
+    // 3) Prompt + ejecución (con respaldo de extracción si es archivo)
     const rutas = {
       reglas: path.join(DIR_REFERENCIAS, "reglas-estilo.md"),
       plantilla: path.join(DIR_REFERENCIAS, "plantilla-ejemplo.html"),
       post: path.join(dir, "post.html"),
       meta: path.join(dir, "meta.json"),
     };
-    const prompt = construirPrompt(
-      { texto: entrada.texto, url: entrada.url, idioma: entrada.idioma },
-      rutas,
-    );
+
+    const fuentePrompt: FuentePrompt =
+      entrada.fuente.tipo === "archivo"
+        ? { tipo: "archivo", ruta: entrada.fuente.ruta }
+        : { tipo: "texto", texto: entrada.fuente.texto };
 
     emitir({ tipo: "paso", texto: "Lanzando el generador…" });
-    const res = await ejecutarClaude(
-      prompt,
-      { cwd: RAIZ, signal },
-      {
-        onEvento: (ev) => {
-          const linea = describirEvento(ev);
-          if (linea) emitir({ tipo: "paso", texto: linea });
-        },
-      },
+    let { html, error, okCli } = await lanzar(
+      construirPrompt({ fuente: fuentePrompt, url: entrada.url, idioma: entrada.idioma }, rutas),
+      rutas.post,
+      emitir,
+      signal,
     );
 
-    // 4) Los archivos son la fuente de verdad: aunque el CLI salga con código != 0
-    //    (p. ej. tope de turnos), si post.html existe y es válido lo damos por bueno.
-    let htmlBruto: string | null = null;
-    try {
-      htmlBruto = await fs.readFile(rutas.post, "utf8");
-    } catch {
-      htmlBruto = null;
+    // Respaldo: si era archivo y el CLI no consiguió escribir un post válido,
+    // extraemos el texto con unpdf/mammoth y reintentamos como texto.
+    if (!html && entrada.fuente.tipo === "archivo") {
+      emitir({
+        tipo: "aviso",
+        texto: "El CLI no pudo leer el archivo directamente; usando el extractor de respaldo…",
+      });
+      try {
+        const texto = (await extraerTexto(entrada.fuente.ruta)).trim();
+        if (texto) {
+          const r2 = await lanzar(
+            construirPrompt(
+              { fuente: { tipo: "texto", texto }, url: entrada.url, idioma: entrada.idioma },
+              rutas,
+            ),
+            rutas.post,
+            emitir,
+            signal,
+          );
+          html = r2.html;
+          error = r2.error;
+          okCli = r2.okCli;
+        }
+      } catch (e) {
+        emitir({ tipo: "aviso", texto: `El extractor de respaldo falló: ${String(e)}` });
+      }
     }
-    const html = htmlBruto ? limpiarHtml(htmlBruto) : "";
+
     if (!html) {
       emitir({
         tipo: "fin",
         ok: false,
-        error: res.error || "El generador no escribió un post.html válido.",
+        error: error || "El generador no escribió un post.html válido.",
       });
       return;
     }
-    if (!res.ok) {
+    if (!okCli) {
       emitir({
         tipo: "aviso",
         texto:
@@ -150,7 +197,7 @@ export async function ejecutarTrabajo(
       });
     }
 
-    // 5) Meta del modelo (tolerante a fallos) + normalización
+    // 4) Meta del modelo (tolerante) + normalización canónica
     let metaModelo: Record<string, unknown> = {};
     try {
       metaModelo = obj(JSON.parse(await fs.readFile(rutas.meta, "utf8")));
@@ -160,26 +207,31 @@ export async function ejecutarTrabajo(
 
     const palabras = contarPalabras(html);
     const faltantes = detectarFaltantes(html);
+    const temaEntrada =
+      entrada.fuente.tipo === "texto"
+        ? entrada.fuente.texto
+        : `Archivo: ${entrada.fuente.nombre}`;
+
     const meta: Meta = {
       id,
-      slug,
-      titulo: str(metaModelo.titulo) || tituloDesdeHtml(html) || slug,
+      slug: slugBase,
+      titulo: str(metaModelo.titulo) || tituloDesdeHtml(html) || slugBase,
       metaTitle: recortar(str(metaModelo.metaTitle), 60),
       metaDescription: recortar(str(metaModelo.metaDescription), 155),
-      temaEntrada: entrada.texto,
+      temaEntrada,
       urlDestino: entrada.url,
       idioma: entrada.idioma,
       fecha: new Date().toISOString(),
-      modo: entrada.modo ?? "texto",
+      modo: entrada.modo ?? (entrada.fuente.tipo === "archivo" ? "archivo" : "texto"),
       archivoOrigen,
       palabras,
       faltantes,
       version: 1,
     };
 
-    // 6) Reescribir meta canónico + html limpio, y actualizar índice
     await fs.writeFile(rutas.meta, JSON.stringify(meta, null, 2) + "\n", "utf8");
-    if (html !== htmlBruto) await fs.writeFile(rutas.post, html + "\n", "utf8");
+    const brutoActual = await fs.readFile(rutas.post, "utf8").catch(() => "");
+    if (html !== brutoActual) await fs.writeFile(rutas.post, html + "\n", "utf8");
     await upsertIndice(meta);
 
     if (faltantes.length > 0) {

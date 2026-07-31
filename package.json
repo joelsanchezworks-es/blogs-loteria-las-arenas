@@ -10,9 +10,11 @@
     "generar": "node scripts/generar.mjs"
   },
   "dependencies": {
+    "mammoth": "^1.12.0",
     "next": "^15",
     "react": "^19",
-    "react-dom": "^19"
+    "react-dom": "^19",
+    "unpdf": "^1.8.0"
   },
   "devDependencies": {
     "@types/node": "^22",
