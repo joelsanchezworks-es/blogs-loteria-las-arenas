@@ -6,7 +6,7 @@ import Link from "next/link";
 export default function Encabezado({
   activo,
 }: {
-  activo?: "generador" | "historial";
+  activo?: "generador" | "historial" | "reglas";
 }) {
   return (
     <header className="border-b border-borde bg-panel/40 backdrop-blur">
@@ -44,6 +44,14 @@ export default function Encabezado({
             }`}
           >
             Historial
+          </Link>
+          <Link
+            href="/reglas"
+            className={`rounded-md px-3 py-1.5 font-medium transition-colors ${
+              activo === "reglas" ? "bg-oro/15 text-oro" : "text-tenue hover:text-claro"
+            }`}
+          >
+            Reglas
           </Link>
         </nav>
       </div>

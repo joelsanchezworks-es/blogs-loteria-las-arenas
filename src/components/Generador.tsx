@@ -89,6 +89,8 @@ export default function Generador({ bloqueado }: { bloqueado: boolean }) {
   const [copiado, setCopiado] = useState<string | null>(null);
 
   const inputFile = useRef<HTMLInputElement | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const [fuentesLote, setFuentesLote] = useState<Record<string, unknown>[]>([]);
 
   // Precarga desde "Duplicar" del historial.
   useEffect(() => {
@@ -159,11 +161,15 @@ export default function Generador({ bloqueado }: { bloqueado: boolean }) {
       setTrabajos([]);
       setSeleccion(0);
       setErrorGlobal(null);
+      setFuentesLote(payload);
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
       try {
         const resp = await fetch("/api/generar", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ trabajos: payload }),
+          signal: ctrl.signal,
         });
         await leerStream(resp, (ev) => {
           const tipo = ev.tipo;
@@ -210,7 +216,10 @@ export default function Generador({ bloqueado }: { bloqueado: boolean }) {
           });
         });
       } catch (e) {
-        setErrorGlobal(`No se pudo completar: ${String(e)}`);
+        if ((e as Error).name !== "AbortError")
+          setErrorGlobal(`No se pudo completar: ${String(e)}`);
+      } finally {
+        abortRef.current = null;
       }
     },
     [],
@@ -222,12 +231,15 @@ export default function Generador({ bloqueado }: { bloqueado: boolean }) {
     setPasosDeteccion([]);
     setErrorGlobal(null);
     const recopilados: TemaUI[] = [];
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     try {
       for (const a of archivos) {
         const resp = await fetch("/api/detectar", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ token: a.token }),
+          signal: ctrl.signal,
         });
         await leerStream(resp, (ev) => {
           if (ev.tipo === "paso") setPasosDeteccion((p) => [...p, `${a.nombre}: ${String(ev.texto)}`]);
@@ -265,10 +277,25 @@ export default function Generador({ bloqueado }: { bloqueado: boolean }) {
       setTemas(recopilados);
       setFase("confirmar");
     } catch (e) {
-      setErrorGlobal(`Error en la detección: ${String(e)}`);
+      if ((e as Error).name !== "AbortError") setErrorGlobal(`Error en la detección: ${String(e)}`);
       setFase("idle");
+    } finally {
+      abortRef.current = null;
     }
   }, [archivos, texto]);
+
+  const cancelar = useCallback(() => {
+    abortRef.current?.abort();
+    setFase("idle");
+  }, []);
+
+  const regenerarUno = useCallback(
+    (i: number) => {
+      const fuente = fuentesLote[i];
+      if (fuente) generarLote([fuente]);
+    },
+    [fuentesLote, generarLote],
+  );
 
   /* ── Botón principal ── */
   const onGenerar = useCallback(() => {
@@ -489,6 +516,15 @@ export default function Generador({ bloqueado }: { bloqueado: boolean }) {
         >
           {ocupado ? "Trabajando…" : modo === "B" && archivos.length > 0 ? "✦ Detectar temas" : "✦ Generar HTML"}
         </button>
+        {ocupado && (
+          <button
+            type="button"
+            onClick={cancelar}
+            className="mt-2 w-full rounded-md border border-borde px-4 py-2 text-xs font-medium text-tenue transition-colors hover:border-red-400/50 hover:text-red-300"
+          >
+            Cancelar
+          </button>
+        )}
         {bloqueado && (
           <p className="mt-2 text-center text-xs text-tenue">
             Generación desactivada hasta resolver el aviso de arriba.
@@ -545,6 +581,7 @@ export default function Generador({ bloqueado }: { bloqueado: boolean }) {
                 onCopiarMd={() => jobSel.resultado && copiar(jobSel.resultado.meta.metaDescription, "md")}
                 onDescargar={() => jobSel.resultado && descargar(jobSel.resultado)}
                 onAbrirCarpeta={() => jobSel.resultado && abrirCarpeta(jobSel.resultado.id)}
+                onRegenerar={() => regenerarUno(seleccion)}
               />
             )}
           </div>
@@ -722,6 +759,7 @@ function VistaTrabajo({
   onCopiarMd,
   onDescargar,
   onAbrirCarpeta,
+  onRegenerar,
 }: {
   job: Job;
   copiado: string | null;
@@ -730,6 +768,7 @@ function VistaTrabajo({
   onCopiarMd: () => void;
   onDescargar: () => void;
   onAbrirCarpeta: () => void;
+  onRegenerar: () => void;
 }) {
   const [pestana, setPestana] = useState<"vista" | "codigo">("vista");
 
@@ -796,6 +835,7 @@ function VistaTrabajo({
       <div className="mt-4 flex flex-wrap gap-2">
         <Boton onClick={onCopiarHtml}>{copiado === "html" ? "¡Copiado!" : "Copiar HTML"}</Boton>
         <Boton onClick={onDescargar}>Descargar .html</Boton>
+        <Boton onClick={onRegenerar}>Regenerar</Boton>
         <Boton onClick={onAbrirCarpeta}>Abrir carpeta</Boton>
       </div>
       <p className="mt-2 text-xs text-tenue">
