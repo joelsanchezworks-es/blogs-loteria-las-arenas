@@ -56,9 +56,11 @@ confirmación**, y **no** se modifican salvo que el usuario lo indique explícit
 - **Dirección:** C.C. Arenas de Barcelona · Gran Via de les Corts Catalanes,
   373-385, L-S28, 08015 Barcelona.
 - **Teléfono:** 934 247 349.
-- **URL de compra (CTA principal):**
+- **URL de compra (referencia canónica del sitio):**
   `https://www.loterialasarenas.com/comprar-loteria-de-navidad-online`
-  → Si el post trae su propia `URL DE LA PÁGINA`, **esa manda** para ese post.
+  → Los CTA de compra usan la `URL DE LA PÁGINA` (`urlDestino`) del post; si no se
+  aporta, llevan `href="#"` (ver §10). Esta constante es solo la página de compra
+  general, como referencia.
 - **URL de comprobación:** `https://www.loterialasarenas.com/comprobar-loteria-nacional`
 - **Voz recurrente / testimonio:** **Víctor**, el lotero de referencia de la
   administración. Se puede incluir su cita en todos los posts (ver §8.8), firmada
@@ -292,8 +294,10 @@ GAdmin; el bloque solo marca visualmente dónde va y qué debe mostrar.
 - Enlaces internos a `loterialasarenas.com` cuando encajen de forma natural.
 - El artículo lleva **varios CTA** repartidos (hero, tras bloques clave) y **uno
   final grande**. Texto de botón en MAYÚSCULAS, a menudo cerrando con `→`.
-- La `URL DE LA PÁGINA` que introduce el usuario es el destino principal de compra
-  y debe usarse en los CTA de ese post.
+- **Destino de los CTA de compra:** la `URL DE LA PÁGINA` (`urlDestino`) del post.
+  Si el usuario **no** la aporta → `urlDestino` queda `null` en `meta.json` y **todos
+  los CTA de compra llevan `href="#"`** (no se inventa URL). El CTA de "comprobar"
+  sí usa siempre la URL de comprobación (constante).
 
 ---
 
