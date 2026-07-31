@@ -1,0 +1,26 @@
+{
+  "name": "blogs-loteria-las-arenas",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Generador local de HTML para el blog de Lotería Las Arenas (motor: CLI de Claude Code, sin API de pago).",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "generar": "node scripts/generar.mjs"
+  },
+  "dependencies": {
+    "next": "^15",
+    "react": "^19",
+    "react-dom": "^19"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "autoprefixer": "^10",
+    "postcss": "^8",
+    "tailwindcss": "^3.4",
+    "typescript": "^5"
+  }
+}
