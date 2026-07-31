@@ -55,7 +55,9 @@ export function construirArgs(opts: OpcionesGeneracion): string[] {
     "--allowedTools",
     (opts.allowedTools ?? [...TOOLS_POR_DEFECTO]).join(","),
     "--max-turns",
-    String(opts.maxTurns ?? 8),
+    // Margen holgado: leer 2 referencias + escribir 2 archivos son ~4 turnos;
+    // 8 se quedaba corto si el modelo hacía pasos extra. Solo se gastan si se usan.
+    String(opts.maxTurns ?? 20),
   ];
   if (opts.model) args.push("--model", opts.model);
   for (const dir of opts.addDirs ?? []) args.push("--add-dir", dir);
