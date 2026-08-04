@@ -61,12 +61,12 @@ el paso 2; si no, cópiala desde **Storage → tu base de datos → `.env.local`
 > distinto de `true`). En Vercel el sistema de archivos es de solo lectura y no hay
 > binario `claude`; el modo local no funcionaría allí.
 
-### 4. Plan Pro (recomendado por el tiempo de generación)
+### 4. Plan Hobby (gratuito) — compatible
 
-Generar un post completo puede tardar más de 60 s. La ruta `/api/generar` declara
-`maxDuration = 300`, que **requiere plan Pro** (el plan Hobby limita las funciones
-a 60 s y cortaría los posts largos). En Hobby la app despliega igual, pero los posts
-largos pueden fallar por timeout.
+La app funciona en el **plan gratuito (Hobby)** de Vercel. Las funciones declaran
+`maxDuration = 60` (el máximo de Hobby) y el prompt está ajustado para que un post
+(~600 palabras) se genere dentro de ese margen. Si algún post puntual se acercara
+al límite, vuelve a intentarlo con el botón **Regenerar**.
 
 ### 5. Deploy
 
@@ -78,7 +78,7 @@ sin ellas). Listo.
 1. Importar el repo.
 2. **Storage → Create Database → Postgres → Connect** (pone `POSTGRES_URL`).
 3. **Settings → Environment Variables → añadir `ANTHROPIC_API_KEY`**.
-4. (Recomendado) Plan **Pro** por el `maxDuration` de 300 s.
+4. (Opcional) El plan **gratuito (Hobby)** es suficiente: `maxDuration = 60`.
 5. **Deploy.**
 
 ---
@@ -189,7 +189,7 @@ El prompt incluye `reglas-estilo.md` + la plantilla como referencia y estas norm
 - Devuelve **solo** el HTML del cuerpo (sin `<!DOCTYPE>/<html>/<head>/<body>`, sin
   vallas markdown ni comentarios). Todo con estilos **inline**.
 - `meta title` (≤60) y `meta description` (≤155) se devuelven aparte, no en el HTML.
-- 900–1.400 palabras salvo indicación contraria. Entradilla, `H2` por bloque, CTA final.
+- ~600 palabras (500–700) salvo indicación contraria. Entradilla, `H2` por bloque, CTA final.
 - Español natural de España (o el idioma elegido).
 - **No inventa datos:** fechas, precios, importes y plazos solo salen del input; si
   falta un dato clave, deja el hueco visible `[[FALTA: …]]`.

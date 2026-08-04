@@ -25,7 +25,9 @@ export async function generarTextoApi(
   const stream = cliente().messages.stream(
     {
       model: MODELO_API,
-      max_tokens: 16000,
+      // Tope de seguridad alineado con el objetivo de ~600 palabras: acota el
+      // peor caso para caber en los 60s del plan Hobby de Vercel.
+      max_tokens: 6000,
       system: [{ type: "text", text: sistema, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: usuario }],
     },

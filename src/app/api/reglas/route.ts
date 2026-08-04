@@ -3,7 +3,7 @@ import { leerReglas, regenerarReglas } from "@/lib/reglas";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 60;
 
 /** Contenido actual de reglas-estilo.md. */
 export async function GET() {

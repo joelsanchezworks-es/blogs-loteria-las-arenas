@@ -5,9 +5,9 @@ import type { Idioma } from "@/lib/prompt";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-// La generación de un post completo puede tardar. Vercel Hobby limita a 60s;
-// para posts largos hace falta plan Pro (hasta 300s).
-export const maxDuration = 300;
+// Vercel Hobby (plan gratuito) limita las funciones a 60s. El prompt está
+// ajustado para que un post (~600 palabras) se genere dentro de ese margen.
+export const maxDuration = 60;
 
 const IDIOMAS: Idioma[] = ["es", "ca", "en"];
 function normIdioma(v: unknown): Idioma {

@@ -49,7 +49,8 @@ ${refs.plantilla}
 ===== NORMAS DURAS =====
 - Todo el estilo va inline (cero clases, cero <style>). Misma paleta que la plantilla (#1b1d39 / #13152a / #caa669 / #f2f2f2) y mismos módulos.
 - El HTML es SOLO el cuerpo del artículo: empieza por el <div> wrapper exterior y termina cerrando los dos <div> + la coletilla legal +18. NADA de <!DOCTYPE>, <html>, <head>, <body>, ni vallas markdown, ni comentarios extra.
-- Extensión 900–1400 palabras salvo que las instrucciones pidan otra cosa. Entradilla que enganche, un <h2> por bloque (cada uno con su barrita dorada), párrafos cortos, listas con flechas "→" solo si aportan, y una caja de CTA final grande.
+- Extensión en torno a 500 palabras (450–600), salvo que las instrucciones pidan otra cosa. Sé conciso y ve al grano: entradilla breve que enganche, 3–4 bloques como máximo (un <h2> por bloque, cada uno con su barrita dorada), párrafos cortos, alguna lista con flechas "→" solo si aporta, y una caja de CTA final. No rellenes ni repitas ideas.
+- HTML compacto: usa la estructura mínima de la plantilla, no anides <div> más de lo necesario ni repitas bloques decorativos. Cuanto más breve y limpio, mejor.
 - NO INVENTES DATOS. Fechas de sorteo, precios del décimo, importes de premio, plazos y condiciones SOLO salen de los datos del post. Si falta un dato clave, deja el hueco visible como [[FALTA: descripción]]. Prefiere el hueco a inventar.
 - Imágenes: NO inventes URLs; usa el bloque placeholder dorado punteado de las reglas (§9).
 - Constantes de negocio (§1B): úsalas siempre (dirección, teléfono, nº 336, historial de premios, voz de Víctor).

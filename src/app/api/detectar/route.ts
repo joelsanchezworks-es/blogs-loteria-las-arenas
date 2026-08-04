@@ -4,7 +4,7 @@ import { motorDisponible } from "@/lib/motor";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 60;
 
 /** Modo B: detecta los temas de los archivos subidos. Responde en streaming. */
 export async function POST(req: Request) {
