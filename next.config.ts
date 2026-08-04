@@ -1,8 +1,14 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // App local: no se despliega. El motor es el binario `claude` autenticado
-  // con la cuenta Max, así que la app corre solo en localhost.
+  // Las rutas API leen referencias/reglas-estilo.md y plantilla-ejemplo.html en
+  // tiempo de ejecución para inyectarlas en el prompt. En Vercel hay que incluir
+  // esos archivos en el bundle de las funciones serverless.
+  outputFileTracingIncludes: {
+    "/api/generar": ["./referencias/**"],
+    "/api/detectar": ["./referencias/**"],
+    "/api/reglas": ["./referencias/**"],
+  },
 };
 
 export default nextConfig;

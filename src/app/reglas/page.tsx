@@ -9,6 +9,7 @@ export default function ReglasPage() {
   const [regenerando, setRegenerando] = useState(false);
   const [pasos, setPasos] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [modoLocal, setModoLocal] = useState(false);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -24,6 +25,13 @@ export default function ReglasPage() {
   useEffect(() => {
     cargar();
   }, [cargar]);
+
+  useEffect(() => {
+    fetch("/api/estado")
+      .then((r) => r.json())
+      .then((d) => setModoLocal(Boolean(d.modoLocal)))
+      .catch(() => {});
+  }, []);
 
   const regenerar = useCallback(async () => {
     if (!window.confirm("Regenerar reglas-estilo.md desde la plantilla actual. Se conservarán las decisiones de negocio. ¿Continuar?")) return;
@@ -81,15 +89,25 @@ export default function ReglasPage() {
               para que reflejen el nuevo diseño (se conservan las decisiones de negocio: nº 336,
               constantes, +18, no inventar datos…).
             </p>
+            {!modoLocal && (
+              <p className="mt-2 max-w-xl text-xs leading-relaxed text-amber-300/90">
+                Desplegado en Vercel el sistema de archivos es de solo lectura: la regeneración
+                solo funciona en modo local. Edita{" "}
+                <code className="text-oro/80">referencias/reglas-estilo.md</code> y vuelve a
+                desplegar.
+              </p>
+            )}
           </div>
-          <button
-            type="button"
-            onClick={regenerar}
-            disabled={regenerando}
-            className="shrink-0 rounded-md bg-oro px-4 py-2.5 text-sm font-bold uppercase tracking-[0.1em] text-noche transition-opacity hover:opacity-90 disabled:opacity-50"
-          >
-            {regenerando ? "Regenerando…" : "Regenerar reglas"}
-          </button>
+          {modoLocal && (
+            <button
+              type="button"
+              onClick={regenerar}
+              disabled={regenerando}
+              className="shrink-0 rounded-md bg-oro px-4 py-2.5 text-sm font-bold uppercase tracking-[0.1em] text-noche transition-opacity hover:opacity-90 disabled:opacity-50"
+            >
+              {regenerando ? "Regenerando…" : "Regenerar reglas"}
+            </button>
+          )}
         </div>
 
         {regenerando && (

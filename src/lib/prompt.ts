@@ -1,22 +1,13 @@
-/** Construcción de los prompts que se pasan al CLI por stdin. */
+import { promises as fs } from "node:fs";
+import path from "node:path";
 
 export type Idioma = "es" | "ca" | "en";
 
-export type FuentePrompt =
-  | { tipo: "texto"; texto: string }
-  | { tipo: "archivo"; ruta: string };
-
 export type EntradaPrompt = {
-  fuente: FuentePrompt;
+  /** Datos del post: texto escrito o texto extraído de un archivo. */
+  texto: string;
   url: string | null;
   idioma: Idioma;
-};
-
-export type RutasPrompt = {
-  reglas: string; // ruta absoluta a reglas-estilo.md
-  plantilla: string; // ruta absoluta a plantilla-ejemplo.html
-  post: string; // ruta absoluta donde escribir post.html
-  meta: string; // ruta absoluta donde escribir meta.json
 };
 
 const IDIOMA_LARGO: Record<Idioma, string> = {
@@ -25,89 +16,81 @@ const IDIOMA_LARGO: Record<Idioma, string> = {
   en: "inglés natural",
 };
 
-function bloqueDatos(fuente: FuentePrompt): string {
-  if (fuente.tipo === "archivo") {
-    return `Los datos de este post están en este archivo. Léelo con tu herramienta Read y usa ÚNICAMENTE la información que contenga (no inventes nada):
-${fuente.ruta}`;
-  }
-  return `"""
-${fuente.texto}
-"""`;
+const DIR_REFERENCIAS = path.join(process.cwd(), "referencias");
+
+export type Referencias = { reglas: string; plantilla: string };
+
+/** Lee reglas-estilo.md y plantilla-ejemplo.html para inyectarlas en el prompt. */
+export async function leerReferencias(): Promise<Referencias> {
+  const [reglas, plantilla] = await Promise.all([
+    fs.readFile(path.join(DIR_REFERENCIAS, "reglas-estilo.md"), "utf8").catch(() => ""),
+    fs.readFile(path.join(DIR_REFERENCIAS, "plantilla-ejemplo.html"), "utf8").catch(() => ""),
+  ]);
+  return { reglas, plantilla };
 }
 
-export function construirPrompt(entrada: EntradaPrompt, rutas: RutasPrompt): string {
+/**
+ * Construye el prompt de generación. Devuelve una parte `sistema` (estable, con
+ * las reglas + la plantilla + el formato de salida — se cachea) y una parte
+ * `usuario` (los datos concretos del post).
+ */
+export function construirPrompt(
+  entrada: EntradaPrompt,
+  refs: Referencias,
+): { sistema: string; usuario: string } {
+  const sistema = `Eres el redactor del blog de Lotería Las Arenas (Administración Oficial nº 336, C.C. Arenas de Barcelona). Generas el HTML del cuerpo de un post, listo para pegar en el CMS, con EXACTAMENTE el mismo estilo y estructura de la plantilla de referencia.
+
+===== REGLAS DE ESTILO (síguelas al pie de la letra) =====
+${refs.reglas}
+
+===== PLANTILLA DE EJEMPLO (referencia literal de diseño) =====
+${refs.plantilla}
+
+===== NORMAS DURAS =====
+- Todo el estilo va inline (cero clases, cero <style>). Misma paleta que la plantilla (#1b1d39 / #13152a / #caa669 / #f2f2f2) y mismos módulos.
+- El HTML es SOLO el cuerpo del artículo: empieza por el <div> wrapper exterior y termina cerrando los dos <div> + la coletilla legal +18. NADA de <!DOCTYPE>, <html>, <head>, <body>, ni vallas markdown, ni comentarios extra.
+- Extensión 900–1400 palabras salvo que las instrucciones pidan otra cosa. Entradilla que enganche, un <h2> por bloque (cada uno con su barrita dorada), párrafos cortos, listas con flechas "→" solo si aportan, y una caja de CTA final grande.
+- NO INVENTES DATOS. Fechas de sorteo, precios del décimo, importes de premio, plazos y condiciones SOLO salen de los datos del post. Si falta un dato clave, deja el hueco visible como [[FALTA: descripción]]. Prefiere el hueco a inventar.
+- Imágenes: NO inventes URLs; usa el bloque placeholder dorado punteado de las reglas (§9).
+- Constantes de negocio (§1B): úsalas siempre (dirección, teléfono, nº 336, historial de premios, voz de Víctor).
+- Cierre obligatorio: footer de Las Arenas + coletilla legal +18 (§8.12) como última línea, en el idioma del post.
+- CTA de compra hacia la URL de la página; si no hay URL, href="#".
+- Sin promesas de ganar ni afirmaciones sobre probabilidades. Juego responsable, +18.
+
+===== FORMATO DE SALIDA (OBLIGATORIO) =====
+Devuelve EXACTAMENTE este formato y NADA más (sin texto antes ni después, sin vallas markdown):
+===META===
+{"titulo":"título humano del post","metaTitle":"meta title SEO, máx 60 caracteres","metaDescription":"meta description SEO, máx 155 caracteres","faltantes":["descripciones de los [[FALTA: …]] que hayas dejado, o vacío"]}
+===HTML===
+<div ...>…el cuerpo del artículo…</div>`;
+
   const urlLinea = entrada.url
     ? entrada.url
-    : 'No se ha indicado URL. Usa href="#" en los CTA de compra (no inventes ninguna URL de destino).';
+    : 'No se ha indicado URL. Usa href="#" en los CTA de compra (no inventes ninguna URL).';
 
-  return `Eres el redactor del blog de Lotería Las Arenas (Administración Oficial nº 336, C.C. Arenas de Barcelona). Tu trabajo es generar el HTML del cuerpo de un post, listo para pegar en el CMS, con EXACTAMENTE el mismo estilo y estructura de la plantilla de referencia.
+  const usuario = `DATOS DE ESTE POST (única fuente de datos; no inventes nada):
+"""
+${entrada.texto}
+"""
 
-PASO 1 — Lee estos dos archivos para interiorizar el estándar (OBLIGATORIO antes de escribir):
-- Reglas de estilo (síguelas al pie de la letra): ${rutas.reglas}
-- Plantilla de ejemplo (referencia literal de diseño): ${rutas.plantilla}
+Idioma de salida: ${IDIOMA_LARGO[entrada.idioma]}. Escribe TODO el contenido en este idioma.
+URL de la página (destino de los CTA de compra): ${urlLinea}
 
-Replica el sistema visual de la plantilla: TODO con estilos inline (cero clases, cero <style>), misma paleta (#1b1d39 / #13152a / #caa669 / #f2f2f2), mismos módulos (hero, aviso de fecha, cajas, tabla de premios si procede, cita de Víctor, FAQ, CTA final, footer) y mismas constantes de negocio (dirección, teléfono, nº 336, historial de premios 2023-2025).
+Genera ahora el post siguiendo EXACTAMENTE el formato de salida (===META=== y ===HTML===).`;
 
-DATOS DE ESTE POST (ÚNICA fuente de datos; no inventes nada):
-${bloqueDatos(entrada.fuente)}
-
-- Idioma de salida: ${IDIOMA_LARGO[entrada.idioma]}. Escribe TODO el contenido en este idioma.
-- URL de la página (destino de los CTA de compra): ${urlLinea}
-
-REGLAS DURAS:
-- Devuelve SOLO el HTML del cuerpo: empieza por el <div> wrapper exterior y termina cerrando los dos <div> + la coletilla legal +18. NADA de <!DOCTYPE>, <html>, <head>, <body>, ni vallas markdown (nada de \`\`\`), ni comentarios extra.
-- Extensión: 900–1400 palabras salvo que las instrucciones pidan otra cosa.
-- Estructura: entradilla que enganche, un <h2> por bloque temático (cada uno con su barrita dorada debajo), párrafos cortos, listas con flechas "→" solo si aportan, y una caja de CTA final grande.
-- NO INVENTES DATOS. Fechas de sorteo, precios del décimo, importes de premio, plazos y condiciones SOLO pueden salir de los datos de arriba. Si falta un dato clave, deja el hueco visible como [[FALTA: descripción]] (p. ej. [[FALTA: precio del décimo]]). Prefiere el hueco a inventar un dato.
-- Imágenes: NO inventes URLs. Usa el bloque placeholder dorado punteado (reglas §9) con una descripción corta de qué imagen va ahí.
-- Constantes de negocio: úsalas siempre tal cual están en las reglas (§1B). La cita de Víctor puede incluirse como voz recurrente.
-- Cierre OBLIGATORIO: footer de Las Arenas y, como última línea, la coletilla legal +18 (§8.12), en el idioma del post.
-- Sin promesas de ganar ni afirmaciones sobre probabilidades de acierto. Juego responsable, +18.
-
-MÉTODO (síguelo EXACTAMENTE, sin pasos de más):
-1) Lee el archivo de reglas de estilo.
-2) Lee la plantilla de ejemplo.
-3) Escribe post.html.
-4) Escribe meta.json.
-5) TERMINA.
-No uses la herramienta Bash. No vuelvas a leer ni a "verificar" los archivos que ya has escrito. No hagas comprobaciones adicionales. Los DOS archivos son obligatorios; meta.json es imprescindible.
-
-SALIDA — escribe DOS archivos con tu herramienta Write (sobrescribe si existen):
-
-1) ${rutas.post}
-   → SOLO el HTML del cuerpo del artículo (como se ha descrito arriba).
-
-2) ${rutas.meta}
-   → JSON válido, exactamente con estas claves:
-{
-  "titulo": "título humano del post (aprox. el texto del <h1>)",
-  "metaTitle": "meta title SEO, MÁX 60 caracteres",
-  "metaDescription": "meta description SEO, MÁX 155 caracteres",
-  "idioma": "${entrada.idioma}",
-  "palabras": <número aproximado de palabras del cuerpo, entero>,
-  "faltantes": [<las descripciones de los [[FALTA: …]] que hayas dejado, o [] si no hay>]
+  return { sistema, usuario };
 }
 
-Escribe primero post.html y después meta.json, y entonces TERMINA de inmediato. Lo que cuenta son los dos archivos, no lo que imprimas por pantalla.`;
-}
+/** Prompt de detección de temas (Modo B). Un solo texto. */
+export function construirPromptDeteccion(texto: string): string {
+  return `Eres el editor del blog de Lotería Las Arenas. El siguiente texto contiene VARIOS temas para el blog (por ejemplo un calendario editorial o varios sorteos). Detéctalos y sepáralos.
 
-/** Prompt de detección de temas (Modo B): separar los temas de un archivo. */
-export function construirPromptDeteccion(rutaArchivo: string, rutaSalida: string): string {
-  return `Eres el editor del blog de Lotería Las Arenas. Lee este archivo con tu herramienta Read:
-${rutaArchivo}
+"""
+${texto}
+"""
 
-Contiene VARIOS temas para el blog (por ejemplo un calendario editorial, una lista de sorteos o varios temas seguidos). Detéctalos y sepáralos en una lista.
+Devuelve SOLO un JSON válido y NADA más: un array de objetos, uno por tema, con las claves:
+[{"titulo":"título breve del tema","datosClave":"los datos esenciales en una o dos frases: fechas, precios, importes… tal como aparecen en el texto"}]
 
-Escribe con tu herramienta Write, en esta ruta exacta, un JSON válido (y NADA más):
-${rutaSalida}
-
-El JSON debe ser un array de objetos, uno por tema, con estas claves:
-[
-  { "titulo": "título breve y claro del tema", "datosClave": "los datos esenciales del tema en una o dos frases: fechas, precios, importes, condiciones… tal como aparecen en el archivo" }
-]
-
-Reglas:
-- NO inventes datos: usa solo lo que aparezca en el archivo.
-- NO generes todavía ningún post; solo la lista de temas.
-- No uses la herramienta Bash. Escribe solo ese archivo JSON y termina.`;
+No inventes datos: usa solo lo que aparezca en el texto. No generes ningún post, solo la lista.`;
 }

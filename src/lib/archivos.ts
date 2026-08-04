@@ -1,32 +1,36 @@
-import { promises as fs } from "node:fs";
 import path from "node:path";
 
 /**
- * Extracción de texto de RESPALDO.
+ * Extracción de texto EN MEMORIA (sin escribir a disco).
  *
- * La vía principal es pasar la ruta del archivo al CLI, que lee PDF y DOCX de
- * forma nativa sin librerías extra. Esta función solo se usa como respaldo si el
- * CLI no consigue leer el archivo (ver lib/generacion.ts): PDF con `unpdf`,
- * DOCX con `mammoth`, y el resto (txt/md/html) por lectura directa.
+ * Los archivos subidos (PDF, DOCX, TXT, MD, HTML) se procesan directamente
+ * desde su Buffer: PDF con `unpdf`, DOCX con `mammoth`, el resto por lectura
+ * directa. No se guarda nada en disco (requisito para funcionar en Vercel).
  */
-export async function extraerTexto(ruta: string): Promise<string> {
-  const ext = path.extname(ruta).toLowerCase();
+
+export const EXTENSIONES_OK = [".pdf", ".docx", ".txt", ".md", ".html", ".htm"];
+
+export function extensionValida(nombre: string): boolean {
+  return EXTENSIONES_OK.includes(path.extname(nombre).toLowerCase());
+}
+
+export async function extraerTextoDeBuffer(buffer: Buffer, nombre: string): Promise<string> {
+  const ext = path.extname(nombre).toLowerCase();
 
   if (ext === ".pdf") {
     const { extractText, getDocumentProxy } = await import("unpdf");
-    const buf = await fs.readFile(ruta);
-    const pdf = await getDocumentProxy(new Uint8Array(buf));
+    const pdf = await getDocumentProxy(new Uint8Array(buffer));
     const { text } = await extractText(pdf, { mergePages: true });
     return Array.isArray(text) ? text.join("\n") : String(text);
   }
 
   if (ext === ".docx") {
     const mammoth = await import("mammoth");
-    const { value } = await mammoth.extractRawText({ path: ruta });
+    const { value } = await mammoth.extractRawText({ buffer });
     return value;
   }
 
-  const bruto = await fs.readFile(ruta, "utf8");
+  const bruto = buffer.toString("utf8");
   if (ext === ".html" || ext === ".htm") {
     return bruto
       .replace(/<script[\s\S]*?<\/script>/gi, " ")

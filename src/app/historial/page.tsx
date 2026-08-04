@@ -39,6 +39,14 @@ export default function HistorialPage() {
 
   const [verId, setVerId] = useState<string | null>(null);
   const [sel, setSel] = useState<Set<string>>(new Set());
+  const [modoLocal, setModoLocal] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/estado")
+      .then((r) => r.json())
+      .then((d) => setModoLocal(Boolean(d.modoLocal)))
+      .catch(() => {});
+  }, []);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -299,7 +307,9 @@ export default function HistorialPage() {
                         <AccionMini onClick={() => copiar(p.id)}>Copiar</AccionMini>
                         <AccionMini onClick={() => descargar(p.id)}>Descargar</AccionMini>
                         <AccionMini onClick={() => duplicar(p.id)}>Duplicar</AccionMini>
-                        <AccionMini onClick={() => abrirCarpeta(p.id)}>Carpeta</AccionMini>
+                        {modoLocal && (
+                          <AccionMini onClick={() => abrirCarpeta(p.id)}>Carpeta</AccionMini>
+                        )}
                         <AccionMini peligro onClick={() => borrar(p.id)}>
                           Borrar
                         </AccionMini>

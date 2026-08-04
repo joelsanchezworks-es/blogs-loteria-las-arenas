@@ -4,15 +4,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 type Idioma = "es" | "ca" | "en";
 
-type ArchivoUI = { token: string; nombre: string; tipo: string; tamano: number };
-
 type TemaUI = {
   titulo: string;
   datosClave: string;
   incluir: boolean;
-  origenToken: string | null;
   origenNombre: string | null;
 };
+
+/** Fuente de un trabajo del lote (lo que se reenvía al regenerar uno). */
+type FuenteJob =
+  | { clase: "archivo"; file: File }
+  | { clase: "texto"; texto: string }
+  | { clase: "tema"; titulo: string; datosClave: string };
+
+type ContextoLote = { url: string | null; idioma: Idioma };
 
 type MetaCliente = {
   id: string;
@@ -25,12 +30,11 @@ type MetaCliente = {
 
 type Resultado = { id: string; html: string; meta: MetaCliente };
 
-type EstadoJob = "pendiente" | "en-cola" | "generando" | "listo" | "error";
+type EstadoJob = "pendiente" | "generando" | "listo" | "error";
 
 type Job = {
   etiqueta: string;
   estado: EstadoJob;
-  posicion: number;
   pasos: string[];
   avisos: string[];
   error?: string;
@@ -45,6 +49,11 @@ function formatoTamano(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function tipoDeNombre(nombre: string): string {
+  const punto = nombre.lastIndexOf(".");
+  return punto >= 0 ? nombre.slice(punto + 1).toUpperCase() : "?";
 }
 
 async function leerStream(resp: Response, onEvento: (ev: Record<string, unknown>) => void) {
@@ -70,13 +79,18 @@ async function leerStream(resp: Response, onEvento: (ev: Record<string, unknown>
   }
 }
 
-export default function Generador({ bloqueado }: { bloqueado: boolean }) {
+export default function Generador({
+  bloqueado,
+  modoLocal,
+}: {
+  bloqueado: boolean;
+  modoLocal: boolean;
+}) {
   const [texto, setTexto] = useState("");
   const [url, setUrl] = useState("");
   const [idioma, setIdioma] = useState<Idioma>("es");
   const [modo, setModo] = useState<"A" | "B">("A");
-  const [archivos, setArchivos] = useState<ArchivoUI[]>([]);
-  const [subiendo, setSubiendo] = useState(false);
+  const [archivos, setArchivos] = useState<File[]>([]);
   const [arrastrando, setArrastrando] = useState(false);
 
   const [fase, setFase] = useState<Fase>("idle");
@@ -90,7 +104,8 @@ export default function Generador({ bloqueado }: { bloqueado: boolean }) {
 
   const inputFile = useRef<HTMLInputElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const [fuentesLote, setFuentesLote] = useState<Record<string, unknown>[]>([]);
+  const [fuentesLote, setFuentesLote] = useState<FuenteJob[]>([]);
+  const [contextoLote, setContextoLote] = useState<ContextoLote | null>(null);
 
   // Precarga desde "Duplicar" del historial.
   useEffect(() => {
@@ -107,7 +122,7 @@ export default function Generador({ bloqueado }: { bloqueado: boolean }) {
     }
   }, []);
 
-  const ocupado = fase === "detectando" || fase === "trabajando" || subiendo;
+  const ocupado = fase === "detectando" || fase === "trabajando";
   const hayEntrada = archivos.length > 0 || texto.trim().length > 0;
   const puedeGenerar = !bloqueado && !ocupado && hayEntrada;
 
@@ -121,8 +136,8 @@ export default function Generador({ bloqueado }: { bloqueado: boolean }) {
     }
   }, []);
 
-  /* ── Subida de archivos ── */
-  const subir = useCallback(async (lista: FileList | File[]) => {
+  /* ── Añadir / quitar archivos (sin subida: se envían al generar) ── */
+  const agregar = useCallback((lista: FileList | File[]) => {
     const files = Array.from(lista).filter((f) =>
       EXT_OK.some((e) => f.name.toLowerCase().endsWith(e)),
     );
@@ -131,141 +146,118 @@ export default function Generador({ bloqueado }: { bloqueado: boolean }) {
       return;
     }
     setErrorGlobal(null);
-    setSubiendo(true);
+    setArchivos((prev) => [...prev, ...files]);
+  }, []);
+
+  const quitarArchivo = useCallback((idx: number) => {
+    setArchivos((prev) => prev.filter((_, i) => i !== idx));
+  }, []);
+
+  /* ── Lanzar generación por lotes (FormData directo) ── */
+  const generarLote = useCallback(async (fuentes: FuenteJob[], ctx: ContextoLote) => {
+    if (fuentes.length === 0) return;
+    setFase("trabajando");
+    setTrabajos([]);
+    setSeleccion(0);
+    setErrorGlobal(null);
+    setFuentesLote(fuentes);
+    setContextoLote(ctx);
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
     try {
       const fd = new FormData();
-      files.forEach((f) => fd.append("archivos", f));
-      const resp = await fetch("/api/subir", { method: "POST", body: fd });
-      const datos = await resp.json();
-      const nuevos: ArchivoUI[] = (datos.archivos ?? [])
-        .filter((a: { ok: boolean }) => a.ok)
-        .map((a: ArchivoUI) => ({ token: a.token, nombre: a.nombre, tipo: a.tipo, tamano: a.tamano }));
-      setArchivos((prev) => [...prev, ...nuevos]);
-      const fallos = (datos.archivos ?? []).filter((a: { ok: boolean }) => !a.ok);
-      if (fallos.length) setErrorGlobal(`No se pudieron subir: ${fallos.map((f: { nombre: string }) => f.nombre).join(", ")}`);
+      fd.append("url", ctx.url ?? "");
+      fd.append("idioma", ctx.idioma);
+      const temasFuente = fuentes.filter(
+        (f): f is Extract<FuenteJob, { clase: "tema" }> => f.clase === "tema",
+      );
+      if (temasFuente.length > 0) {
+        fd.append(
+          "temas",
+          JSON.stringify(temasFuente.map((t) => ({ titulo: t.titulo, datosClave: t.datosClave }))),
+        );
+      } else {
+        for (const f of fuentes) {
+          if (f.clase === "archivo") fd.append("archivos", f.file);
+          else if (f.clase === "texto") fd.append("texto", f.texto);
+        }
+      }
+
+      const resp = await fetch("/api/generar", { method: "POST", body: fd, signal: ctrl.signal });
+      await leerStream(resp, (ev) => {
+        const tipo = ev.tipo;
+        if (tipo === "lote") {
+          const etiquetas = (ev.etiquetas as string[]) ?? [];
+          setTrabajos(
+            etiquetas.map((et) => ({ etiqueta: et, estado: "pendiente", pasos: [], avisos: [] })),
+          );
+          return;
+        }
+        const j = typeof ev.job === "number" ? ev.job : 0;
+        setTrabajos((prev) => {
+          const copia = [...prev];
+          const job = copia[j];
+          if (!job) return prev;
+          if (tipo === "paso") {
+            job.estado = "generando";
+            job.pasos = [...job.pasos, String(ev.texto)];
+          } else if (tipo === "aviso") {
+            job.avisos = [...job.avisos, String(ev.texto)];
+          } else if (tipo === "fin") {
+            if (ev.ok) {
+              job.estado = "listo";
+              job.resultado = { id: String(ev.id), html: String(ev.html), meta: ev.meta as MetaCliente };
+            } else {
+              job.estado = "error";
+              job.error = String(ev.error || "Error desconocido.");
+            }
+          }
+          return copia;
+        });
+      });
     } catch (e) {
-      setErrorGlobal(`Error al subir: ${String(e)}`);
+      if ((e as Error).name !== "AbortError") setErrorGlobal(`No se pudo completar: ${String(e)}`);
     } finally {
-      setSubiendo(false);
+      abortRef.current = null;
     }
   }, []);
 
-  const quitarArchivo = useCallback((token: string) => {
-    setArchivos((prev) => prev.filter((a) => a.token !== token));
-  }, []);
-
-  /* ── Lanzar generación por lotes ── */
-  const generarLote = useCallback(
-    async (payload: Record<string, unknown>[]) => {
-      setFase("trabajando");
-      setTrabajos([]);
-      setSeleccion(0);
-      setErrorGlobal(null);
-      setFuentesLote(payload);
-      const ctrl = new AbortController();
-      abortRef.current = ctrl;
-      try {
-        const resp = await fetch("/api/generar", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ trabajos: payload }),
-          signal: ctrl.signal,
-        });
-        await leerStream(resp, (ev) => {
-          const tipo = ev.tipo;
-          if (tipo === "lote") {
-            const etiquetas = (ev.etiquetas as string[]) ?? [];
-            setTrabajos(
-              etiquetas.map((et) => ({
-                etiqueta: et,
-                estado: "pendiente",
-                posicion: 0,
-                pasos: [],
-                avisos: [],
-              })),
-            );
-            return;
-          }
-          const j = typeof ev.job === "number" ? ev.job : 0;
-          setTrabajos((prev) => {
-            const copia = [...prev];
-            const job = copia[j];
-            if (!job) return prev;
-            if (tipo === "estado") {
-              if (ev.valor === "en-cola") {
-                job.estado = "en-cola";
-                job.posicion = Number(ev.posicion) || 0;
-              } else if (ev.valor === "generando") {
-                job.estado = "generando";
-              }
-            } else if (tipo === "paso") {
-              job.estado = "generando";
-              job.pasos = [...job.pasos, String(ev.texto)];
-            } else if (tipo === "aviso") {
-              job.avisos = [...job.avisos, String(ev.texto)];
-            } else if (tipo === "fin") {
-              if (ev.ok) {
-                job.estado = "listo";
-                job.resultado = { id: String(ev.id), html: String(ev.html), meta: ev.meta as MetaCliente };
-              } else {
-                job.estado = "error";
-                job.error = String(ev.error || "Error desconocido.");
-              }
-            }
-            return copia;
-          });
-        });
-      } catch (e) {
-        if ((e as Error).name !== "AbortError")
-          setErrorGlobal(`No se pudo completar: ${String(e)}`);
-      } finally {
-        abortRef.current = null;
-      }
-    },
-    [],
-  );
-
-  /* ── Modo B: detección de temas ── */
+  /* ── Modo B: detección de temas (todos los archivos en una petición) ── */
   const detectar = useCallback(async () => {
     setFase("detectando");
     setPasosDeteccion([]);
     setErrorGlobal(null);
-    const recopilados: TemaUI[] = [];
     const ctrl = new AbortController();
     abortRef.current = ctrl;
+    const recopilados: TemaUI[] = [];
     try {
-      for (const a of archivos) {
-        const resp = await fetch("/api/detectar", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token: a.token }),
-          signal: ctrl.signal,
-        });
-        await leerStream(resp, (ev) => {
-          if (ev.tipo === "paso") setPasosDeteccion((p) => [...p, `${a.nombre}: ${String(ev.texto)}`]);
-          else if (ev.tipo === "fin" && ev.ok) {
-            const lista = (ev.temas as { titulo: string; datosClave: string }[]) ?? [];
-            lista.forEach((t) =>
-              recopilados.push({
-                titulo: t.titulo,
-                datosClave: t.datosClave,
-                incluir: true,
-                origenToken: a.token,
-                origenNombre: a.nombre,
-              }),
-            );
-          } else if (ev.tipo === "fin" && !ev.ok) {
-            setErrorGlobal(String(ev.error));
-          }
-        });
-      }
+      const fd = new FormData();
+      archivos.forEach((f) => fd.append("archivos", f));
+      const resp = await fetch("/api/detectar", { method: "POST", body: fd, signal: ctrl.signal });
+      await leerStream(resp, (ev) => {
+        if (ev.tipo === "paso" || ev.tipo === "aviso") {
+          setPasosDeteccion((p) => [...p, String(ev.texto)]);
+        } else if (ev.tipo === "fin" && ev.ok) {
+          const lista =
+            (ev.temas as { titulo: string; datosClave: string; origenNombre?: string }[]) ?? [];
+          lista.forEach((t) =>
+            recopilados.push({
+              titulo: t.titulo,
+              datosClave: t.datosClave,
+              incluir: true,
+              origenNombre: t.origenNombre ?? null,
+            }),
+          );
+        } else if (ev.tipo === "fin" && !ev.ok) {
+          setErrorGlobal(String(ev.error));
+        }
+      });
       // Si además hay texto escrito, lo añadimos como tema editable.
       if (texto.trim()) {
         recopilados.push({
           titulo: texto.trim().slice(0, 60),
           datosClave: texto.trim(),
           incluir: true,
-          origenToken: null,
           origenNombre: null,
         });
       }
@@ -292,9 +284,9 @@ export default function Generador({ bloqueado }: { bloqueado: boolean }) {
   const regenerarUno = useCallback(
     (i: number) => {
       const fuente = fuentesLote[i];
-      if (fuente) generarLote([fuente]);
+      if (fuente && contextoLote) generarLote([fuente], contextoLote);
     },
-    [fuentesLote, generarLote],
+    [fuentesLote, contextoLote, generarLote],
   );
 
   /* ── Botón principal ── */
@@ -304,29 +296,21 @@ export default function Generador({ bloqueado }: { bloqueado: boolean }) {
       detectar();
       return;
     }
-    const payload: Record<string, unknown>[] = archivos.map((a) => ({
-      fuente: { tipo: "archivo", token: a.token },
-      url: url.trim() || null,
-      idioma,
-      origenToken: a.token,
-    }));
-    if (texto.trim()) {
-      payload.push({ fuente: { tipo: "texto", texto: texto.trim() }, url: url.trim() || null, idioma });
-    }
-    if (payload.length === 0) return;
-    generarLote(payload);
+    const fuentes: FuenteJob[] = archivos.map((f) => ({ clase: "archivo", file: f }));
+    if (texto.trim()) fuentes.push({ clase: "texto", texto: texto.trim() });
+    if (fuentes.length === 0) return;
+    generarLote(fuentes, { url: url.trim() || null, idioma });
   }, [puedeGenerar, modo, archivos, texto, url, idioma, detectar, generarLote]);
 
   const confirmarTemas = useCallback(() => {
     const incluidos = temas.filter((t) => t.incluir && t.titulo.trim());
     if (incluidos.length === 0) return;
-    const payload = incluidos.map((t) => ({
-      fuente: { tipo: "texto", texto: `${t.titulo}\n${t.datosClave}`.trim() },
-      url: url.trim() || null,
-      idioma,
-      origenToken: t.origenToken,
+    const fuentes: FuenteJob[] = incluidos.map((t) => ({
+      clase: "tema",
+      titulo: t.titulo.trim(),
+      datosClave: t.datosClave.trim(),
     }));
-    generarLote(payload);
+    generarLote(fuentes, { url: url.trim() || null, idioma });
   }, [temas, url, idioma, generarLote]);
 
   const abrirCarpeta = useCallback(async (id: string) => {
@@ -371,9 +355,7 @@ export default function Generador({ bloqueado }: { bloqueado: boolean }) {
   }, []);
 
   const jobSel = trabajos[seleccion];
-  const idsListos = trabajos
-    .filter((t) => t.resultado)
-    .map((t) => t.resultado!.id);
+  const idsListos = trabajos.filter((t) => t.resultado).map((t) => t.resultado!.id);
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -413,7 +395,7 @@ export default function Generador({ bloqueado }: { bloqueado: boolean }) {
           onDrop={(e) => {
             e.preventDefault();
             setArrastrando(false);
-            if (e.dataTransfer.files.length) subir(e.dataTransfer.files);
+            if (e.dataTransfer.files.length) agregar(e.dataTransfer.files);
           }}
           onClick={() => inputFile.current?.click()}
           className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-4 py-6 text-center transition-colors ${
@@ -423,7 +405,7 @@ export default function Generador({ bloqueado }: { bloqueado: boolean }) {
           <div className="mb-1 text-xl text-oro/70" aria-hidden>
             ⇪
           </div>
-          <p className="text-sm text-claro">{subiendo ? "Subiendo…" : "Arrastra archivos o haz clic"}</p>
+          <p className="text-sm text-claro">Arrastra archivos o haz clic</p>
           <p className="mt-1 text-xs text-tenue">PDF · DOCX · TXT · MD · HTML</p>
           <input
             ref={inputFile}
@@ -432,7 +414,7 @@ export default function Generador({ bloqueado }: { bloqueado: boolean }) {
             accept={EXT_OK.join(",")}
             className="hidden"
             onChange={(e) => {
-              if (e.target.files?.length) subir(e.target.files);
+              if (e.target.files?.length) agregar(e.target.files);
               e.target.value = "";
             }}
           />
@@ -440,21 +422,21 @@ export default function Generador({ bloqueado }: { bloqueado: boolean }) {
 
         {archivos.length > 0 && (
           <ul className="mt-3 space-y-1.5">
-            {archivos.map((a) => (
+            {archivos.map((a, i) => (
               <li
-                key={a.token}
+                key={`${a.name}-${a.size}-${i}`}
                 className="flex items-center justify-between gap-2 rounded-md border border-borde bg-noche px-3 py-2 text-xs"
               >
                 <span className="truncate text-claro">
-                  <span className="text-oro/80">{a.tipo.toUpperCase()}</span> · {a.nombre}
+                  <span className="text-oro/80">{tipoDeNombre(a.name)}</span> · {a.name}
                 </span>
                 <span className="flex items-center gap-2 shrink-0">
-                  <span className="text-tenue">{formatoTamano(a.tamano)}</span>
+                  <span className="text-tenue">{formatoTamano(a.size)}</span>
                   <button
                     type="button"
-                    onClick={() => quitarArchivo(a.token)}
+                    onClick={() => quitarArchivo(i)}
                     className="text-tenue hover:text-red-300"
-                    aria-label={`Quitar ${a.nombre}`}
+                    aria-label={`Quitar ${a.name}`}
                   >
                     ✕
                   </button>
@@ -539,9 +521,7 @@ export default function Generador({ bloqueado }: { bloqueado: boolean }) {
 
         {fase === "idle" && <EstadoVacio />}
 
-        {fase === "detectando" && (
-          <Progreso titulo="Analizando el archivo…" pasos={pasosDeteccion} />
-        )}
+        {fase === "detectando" && <Progreso titulo="Analizando el archivo…" pasos={pasosDeteccion} />}
 
         {fase === "confirmar" && (
           <EditorTemas
@@ -576,6 +556,7 @@ export default function Generador({ bloqueado }: { bloqueado: boolean }) {
               <VistaTrabajo
                 job={jobSel}
                 copiado={copiado}
+                modoLocal={modoLocal}
                 onCopiarHtml={() => jobSel.resultado && copiar(jobSel.resultado.html, "html")}
                 onCopiarMt={() => jobSel.resultado && copiar(jobSel.resultado.meta.metaTitle, "mt")}
                 onCopiarMd={() => jobSel.resultado && copiar(jobSel.resultado.meta.metaDescription, "md")}
@@ -604,22 +585,12 @@ function EstadoVacio() {
   );
 }
 
-function Progreso({
-  titulo,
-  pasos,
-  posicion,
-}: {
-  titulo: string;
-  pasos: string[];
-  posicion?: number;
-}) {
+function Progreso({ titulo, pasos }: { titulo: string; pasos: string[] }) {
   return (
     <div className="min-h-[200px] rounded-lg border border-borde bg-noche/50 p-4">
       <div className="mb-3 flex items-center gap-2">
         <span className="h-3 w-3 animate-pulse rounded-full bg-oro" aria-hidden />
-        <p className="text-sm font-medium text-claro">
-          {posicion ? `En cola (posición ${posicion})…` : titulo}
-        </p>
+        <p className="text-sm font-medium text-claro">{titulo}</p>
       </div>
       <ul className="space-y-1.5">
         {pasos.map((p, i) => (
@@ -715,7 +686,6 @@ function EditorTemas({
 
 const COLOR_ESTADO: Record<EstadoJob, string> = {
   pendiente: "bg-tenue/40",
-  "en-cola": "bg-tenue/60",
   generando: "bg-oro animate-pulse",
   listo: "bg-emerald-400",
   error: "bg-red-400",
@@ -754,6 +724,7 @@ function ListaTrabajos({
 function VistaTrabajo({
   job,
   copiado,
+  modoLocal,
   onCopiarHtml,
   onCopiarMt,
   onCopiarMd,
@@ -763,6 +734,7 @@ function VistaTrabajo({
 }: {
   job: Job;
   copiado: string | null;
+  modoLocal: boolean;
   onCopiarHtml: () => void;
   onCopiarMt: () => void;
   onCopiarMd: () => void;
@@ -782,13 +754,7 @@ function VistaTrabajo({
   }
 
   if (job.estado !== "listo" || !job.resultado) {
-    return (
-      <Progreso
-        titulo="Generando…"
-        pasos={job.pasos}
-        posicion={job.estado === "en-cola" ? job.posicion : undefined}
-      />
-    );
+    return <Progreso titulo="Generando…" pasos={job.pasos} />;
   }
 
   const { html, meta } = job.resultado;
@@ -836,10 +802,10 @@ function VistaTrabajo({
         <Boton onClick={onCopiarHtml}>{copiado === "html" ? "¡Copiado!" : "Copiar HTML"}</Boton>
         <Boton onClick={onDescargar}>Descargar .html</Boton>
         <Boton onClick={onRegenerar}>Regenerar</Boton>
-        <Boton onClick={onAbrirCarpeta}>Abrir carpeta</Boton>
+        {modoLocal && <Boton onClick={onAbrirCarpeta}>Abrir carpeta</Boton>}
       </div>
       <p className="mt-2 text-xs text-tenue">
-        {meta.palabras} palabras · guardado en historial/{meta.id}
+        {meta.palabras} palabras · {modoLocal ? `guardado en historial/${meta.id}` : "guardado en el historial"}
       </p>
     </div>
   );

@@ -1,11 +1,11 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { ejecutarClaude } from "./claude";
-import { DIR_REFERENCIAS, RAIZ } from "./historial";
-import { describirEvento, type Emisor } from "./generacion";
+import { MODO_LOCAL } from "./config";
+import { generarSimple, type Emisor } from "./motor";
 
-const RUTA_REGLAS = path.join(DIR_REFERENCIAS, "reglas-estilo.md");
-const RUTA_PLANTILLA = path.join(DIR_REFERENCIAS, "plantilla-ejemplo.html");
+const DIR = path.join(process.cwd(), "referencias");
+const RUTA_REGLAS = path.join(DIR, "reglas-estilo.md");
+const RUTA_PLANTILLA = path.join(DIR, "plantilla-ejemplo.html");
 
 export async function leerReglas(): Promise<string> {
   try {
@@ -15,31 +15,10 @@ export async function leerReglas(): Promise<string> {
   }
 }
 
-function promptRegenerar(): string {
-  return `Eres el analista de estilo del blog de Lotería Las Arenas. La plantilla de referencia puede haber cambiado y hay que actualizar el archivo de reglas de estilo.
-
-Lee estos dos archivos:
-- Plantilla actual: ${RUTA_PLANTILLA}
-- Reglas actuales: ${RUTA_REGLAS}
-
-Reescribe el archivo de reglas con tu herramienta Write, en esta ruta exacta:
-${RUTA_REGLAS}
-
-Cómo hacerlo:
-- Actualiza las secciones de DISEÑO para que reflejen la plantilla ACTUAL: paleta de color, tipografía, estructura del documento, jerarquía de encabezados, párrafos, negritas, "listas", componentes/módulos (con su CSS inline), enlaces, fechas, precios y tono de voz.
-- CONSERVA SIN CAMBIOS (cópialas literalmente del archivo de reglas actual) estas secciones de decisiones de negocio y contenido, porque no salen de la plantilla:
-  · "§1B CONSTANTES DE NEGOCIO" (dirección, teléfono, nº 336, URLs, voz de Víctor, historial de premios 2023-2025)
-  · "§8.12 COLETILLA LEGAL +18"
-  · "§9 IMÁGENES" (placeholder dorado punteado, sin URL inventada ni [[FALTA]])
-  · la regla de urlDestino / href="#" (§10)
-  · "§14 REGLAS DE CONTENIDO" (no inventar datos, [[FALTA: …]], juego responsable +18)
-  · "§15 META" y "§16 CHECKLIST"
-- Mantén el mismo formato Markdown, los mismos títulos numerados y el tono del documento actual.
-
-No uses la herramienta Bash. Escribe solo ese archivo y termina.`;
-}
-
-/** Regenera referencias/reglas-estilo.md a partir de la plantilla actual. */
+/**
+ * Regenera referencias/reglas-estilo.md desde la plantilla. Solo en modo local
+ * (en Vercel el sistema de archivos es de solo lectura, así que se desactiva).
+ */
 export async function regenerarReglas({
   emitir,
   signal,
@@ -47,22 +26,49 @@ export async function regenerarReglas({
   emitir: Emisor;
   signal?: AbortSignal;
 }): Promise<void> {
-  emitir({ tipo: "paso", texto: "Analizando la plantilla…" });
-  const res = await ejecutarClaude(
-    promptRegenerar(),
-    { cwd: RAIZ, allowedTools: ["Read", "Write"], maxTurns: 12, signal },
-    {
-      onEvento: (ev) => {
-        const linea = describirEvento(ev);
-        if (linea) emitir({ tipo: "paso", texto: linea });
-      },
-    },
-  );
-
-  const contenido = await leerReglas();
-  if (!contenido.trim()) {
-    emitir({ tipo: "fin", ok: false, error: res.error || "No se pudo regenerar reglas-estilo.md." });
+  if (!MODO_LOCAL) {
+    emitir({
+      tipo: "fin",
+      ok: false,
+      error:
+        "La regeneración de reglas solo funciona en modo local (escribe en referencias/, que en Vercel es de solo lectura). Edita la plantilla y regenera en tu máquina.",
+    });
     return;
   }
-  emitir({ tipo: "fin", ok: true, contenido });
+  try {
+    emitir({ tipo: "paso", texto: "Analizando la plantilla…" });
+    const [reglas, plantilla] = await Promise.all([
+      leerReglas(),
+      fs.readFile(RUTA_PLANTILLA, "utf8").catch(() => ""),
+    ]);
+
+    const prompt = `Eres el analista de estilo del blog de Lotería Las Arenas. La plantilla de referencia puede haber cambiado; hay que actualizar el archivo de reglas de estilo.
+
+Reescribe el documento de reglas de estilo (formato Markdown) de modo que:
+- Las secciones de DISEÑO (paleta, tipografía, estructura, encabezados, párrafos, negritas, "listas", componentes/módulos, enlaces, fechas, precios, tono) reflejen la PLANTILLA ACTUAL.
+- CONSERVA SIN CAMBIOS (cópialas literalmente de las REGLAS ACTUALES) las secciones de decisiones de negocio y contenido: §1B (constantes de negocio), §8.12 (coletilla +18), §9 (imágenes placeholder), la regla de urlDestino/href="#" (§10), §14 (reglas de contenido), §15 (meta) y §16 (checklist).
+- Mantén los mismos títulos numerados y el mismo tono.
+
+Devuelve SOLO el contenido Markdown completo del nuevo reglas-estilo.md, sin vallas de código ni texto adicional.
+
+===== PLANTILLA ACTUAL =====
+${plantilla}
+
+===== REGLAS ACTUALES =====
+${reglas}`;
+
+    const salida = await generarSimple(prompt, { signal, maxTokens: 8000 });
+    const contenido = salida
+      .replace(/^```(?:markdown|md)?\s*\n?/i, "")
+      .replace(/\n?```\s*$/i, "")
+      .trim();
+    if (!contenido) {
+      emitir({ tipo: "fin", ok: false, error: "No se pudo regenerar reglas-estilo.md." });
+      return;
+    }
+    await fs.writeFile(RUTA_REGLAS, contenido + "\n", "utf8");
+    emitir({ tipo: "fin", ok: true, contenido });
+  } catch (e) {
+    emitir({ tipo: "fin", ok: false, error: e instanceof Error ? e.message : String(e) });
+  }
 }

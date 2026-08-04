@@ -1,5 +1,5 @@
 import { zipSync, strToU8 } from "fflate";
-import { leerPost } from "@/lib/historial";
+import { almacen } from "@/lib/almacen";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -14,10 +14,27 @@ export async function POST(req: Request) {
   const archivos: Record<string, Uint8Array> = {};
   for (const raw of ids) {
     if (typeof raw !== "string" || !ID_VALIDO.test(raw)) continue;
-    const p = await leerPost(raw);
+    const p = await almacen.leer(raw);
     if (!p) continue;
     archivos[`${raw}/post.html`] = strToU8(p.html);
-    archivos[`${raw}/meta.json`] = strToU8(JSON.stringify(p.meta, null, 2));
+    archivos[`${raw}/meta.json`] = strToU8(
+      JSON.stringify(
+        {
+          id: p.id,
+          titulo: p.titulo,
+          metaTitle: p.metaTitle,
+          metaDescription: p.metaDescription,
+          tema: p.tema,
+          urlDestino: p.urlDestino,
+          idioma: p.idioma,
+          fecha: p.fecha,
+          palabras: p.palabras,
+          tieneFaltantes: p.tieneFaltantes,
+        },
+        null,
+        2,
+      ),
+    );
   }
 
   if (Object.keys(archivos).length === 0) {

@@ -2,7 +2,7 @@
   "name": "blogs-loteria-las-arenas",
   "version": "0.1.0",
   "private": true,
-  "description": "Generador local de HTML para el blog de Lotería Las Arenas (motor: CLI de Claude Code, sin API de pago).",
+  "description": "Generador de HTML para el blog de Lotería Las Arenas. Dual-modo: en local motor CLI de Claude + archivos; desplegado en Vercel motor API (@anthropic-ai/sdk) + Postgres.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -10,6 +10,8 @@
     "generar": "node scripts/generar.mjs"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.115.0",
+    "@vercel/postgres": "^0.10.0",
     "fflate": "^0.8.3",
     "mammoth": "^1.12.0",
     "next": "^15",

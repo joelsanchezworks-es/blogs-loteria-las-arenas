@@ -10,13 +10,14 @@ next-env.d.ts
 # TypeScript
 *.tsbuildinfo
 
-# Archivos subidos en tránsito (los originales se copian al historial versionado)
-/uploads-tmp
+# Historial local (modo USE_LOCAL_STORAGE). En Vercel se usa Postgres, no el disco.
+/historial
 
-# Variables de entorno — NUNCA subir claves.
-# Este proyecto NO usa ANTHROPIC_API_KEY ni ningún .env con secretos.
+# Variables de entorno — NUNCA subir claves (ANTHROPIC_API_KEY, POSTGRES_URL…).
+# .env.example SÍ se versiona (es la plantilla sin secretos).
 .env
 .env.*
+!.env.example
 
 # Sistema / logs
 .DS_Store

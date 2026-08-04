@@ -1,81 +1,72 @@
-import { encolar } from "@/lib/cola";
+import { extensionValida, extraerTextoDeBuffer } from "@/lib/archivos";
 import { ejecutarTrabajo, type EntradaGeneracion } from "@/lib/generacion";
-import { comprobarApiKey } from "@/lib/guard";
-import { resolverSubida } from "@/lib/subidas";
+import { motorDisponible } from "@/lib/motor";
 import type { Idioma } from "@/lib/prompt";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+// La generación de un post completo puede tardar. Vercel Hobby limita a 60s;
+// para posts largos hace falta plan Pro (hasta 300s).
+export const maxDuration = 300;
 
 const IDIOMAS: Idioma[] = ["es", "ca", "en"];
-
-type TrabajoReq = Record<string, unknown>;
-
-function normalizarIdioma(v: unknown): Idioma {
+function normIdioma(v: unknown): Idioma {
   return IDIOMAS.includes(v as Idioma) ? (v as Idioma) : "es";
 }
 
-/** Convierte un trabajo del cliente en una EntradaGeneracion resuelta (o error). */
-function prepararTrabajo(t: TrabajoReq): {
-  entrada?: EntradaGeneracion;
-  etiqueta: string;
-  error?: string;
-} {
-  const url = typeof t.url === "string" && t.url.trim() ? t.url.trim() : null;
-  const idioma = normalizarIdioma(t.idioma);
-  const fuente = (t.fuente ?? {}) as Record<string, unknown>;
-  const textoDirecto = typeof t.texto === "string" ? t.texto.trim() : "";
-  const tipo = typeof fuente.tipo === "string" ? fuente.tipo : textoDirecto ? "texto" : "";
+type Descriptor =
+  | { tipo: "texto" | "tema"; texto: string; etiqueta: string; modo: EntradaGeneracion["modo"] }
+  | { tipo: "archivo"; file: File; etiqueta: string };
 
-  // Archivo original a copiar en la carpeta (Modo B: el archivo del que salió el tema).
-  let origenTmp: string | null = null;
-  let origenNombre: string | null = null;
-  if (typeof t.origenToken === "string") {
-    const o = resolverSubida(t.origenToken);
-    if (o) {
-      origenTmp = o.ruta;
-      origenNombre = o.nombre;
-    }
-  }
-
-  if (tipo === "archivo") {
-    const token = typeof fuente.token === "string" ? fuente.token : "";
-    const info = token ? resolverSubida(token) : null;
-    if (!info) return { etiqueta: "archivo", error: "Archivo no encontrado (vuelve a subirlo)." };
-    return {
-      etiqueta: info.nombre,
-      entrada: {
-        fuente: { tipo: "archivo", ruta: info.ruta, nombre: info.nombre },
-        url,
-        idioma,
-        modo: "archivo",
-        archivoOrigenTmp: origenTmp ?? info.ruta,
-        archivoOrigenNombre: origenNombre ?? info.nombre,
-      },
-    };
-  }
-
-  const texto = typeof fuente.texto === "string" ? fuente.texto.trim() : textoDirecto;
-  if (!texto) return { etiqueta: "tema", error: "Falta el tema o las instrucciones." };
-  return {
-    etiqueta: texto.slice(0, 48),
-    entrada: {
-      fuente: { tipo: "texto", texto },
-      url,
-      idioma,
-      modo: origenTmp ? "mixto" : "texto",
-      archivoOrigenTmp: origenTmp,
-      archivoOrigenNombre: origenNombre,
-    },
-  };
-}
-
+/**
+ * Genera uno o varios posts. Acepta multipart/form-data:
+ *   texto, url, idioma, temas (JSON de Modo B), archivos[].
+ * Responde en streaming (NDJSON) con eventos por trabajo. Los trabajos se
+ * procesan de uno en uno (cola secuencial natural).
+ */
 export async function POST(req: Request) {
-  const guard = comprobarApiKey();
-  const cuerpo = (await req.json().catch(() => ({}))) as Record<string, unknown>;
-  const lista: TrabajoReq[] = Array.isArray(cuerpo.trabajos)
-    ? (cuerpo.trabajos as TrabajoReq[])
-    : [cuerpo];
+  let form: FormData;
+  try {
+    form = await req.formData();
+  } catch {
+    return new Response(JSON.stringify({ tipo: "fin", ok: false, error: "Petición no válida." }) + "\n", {
+      status: 400,
+      headers: { "Content-Type": "application/x-ndjson; charset=utf-8" },
+    });
+  }
+
+  const texto = String(form.get("texto") ?? "").trim();
+  const urlRaw = form.get("url");
+  const url = typeof urlRaw === "string" && urlRaw.trim() ? urlRaw.trim() : null;
+  const idioma = normIdioma(form.get("idioma"));
+  const temasRaw = form.get("temas");
+  const archivos = form.getAll("archivos").filter((f): f is File => f instanceof File);
+
+  const descriptores: Descriptor[] = [];
+  if (typeof temasRaw === "string" && temasRaw.trim()) {
+    try {
+      const temas = JSON.parse(temasRaw) as { titulo?: string; datosClave?: string }[];
+      if (Array.isArray(temas)) {
+        for (const t of temas) {
+          const titulo = String(t.titulo ?? "").trim();
+          const datos = String(t.datosClave ?? "").trim();
+          if (titulo) {
+            descriptores.push({
+              tipo: "tema",
+              texto: `${titulo}\n${datos}`.trim(),
+              etiqueta: titulo.slice(0, 48),
+              modo: "tema",
+            });
+          }
+        }
+      }
+    } catch {
+      /* temas ilegibles */
+    }
+  } else {
+    for (const f of archivos) descriptores.push({ tipo: "archivo", file: f, etiqueta: f.name });
+    if (texto) descriptores.push({ tipo: "texto", texto, etiqueta: texto.slice(0, 48), modo: "texto" });
+  }
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -88,35 +79,48 @@ export async function POST(req: Request) {
         }
       };
 
-      if (guard.hayApiKey) {
-        send({ tipo: "fin", ok: false, error: guard.mensaje });
+      const motor = await motorDisponible();
+      if (!motor.ok) {
+        send({ tipo: "fin", ok: false, error: motor.error });
+        controller.close();
+        return;
+      }
+      if (descriptores.length === 0) {
+        send({ tipo: "fin", ok: false, error: "Escribe un tema o sube un archivo." });
         controller.close();
         return;
       }
 
-      const preparados = lista.map(prepararTrabajo);
-      send({
-        tipo: "lote",
-        total: preparados.length,
-        etiquetas: preparados.map((p) => p.etiqueta),
-      });
+      send({ tipo: "lote", total: descriptores.length, etiquetas: descriptores.map((d) => d.etiqueta) });
 
-      const promesas = preparados.map((p, i) => {
-        if (!p.entrada) {
-          send({ job: i, tipo: "fin", ok: false, error: p.error });
-          return Promise.resolve();
+      for (let i = 0; i < descriptores.length; i++) {
+        const d = descriptores[i];
+        const emitir = (e: Record<string, unknown>) => send({ job: i, ...e });
+        try {
+          let textoJob: string;
+          let modo: EntradaGeneracion["modo"];
+          if (d.tipo === "archivo") {
+            if (!extensionValida(d.file.name)) {
+              emitir({ tipo: "fin", ok: false, error: "Formato no admitido." });
+              continue;
+            }
+            emitir({ tipo: "paso", texto: `Leyendo ${d.file.name}…` });
+            const buf = Buffer.from(await d.file.arrayBuffer());
+            textoJob = (await extraerTextoDeBuffer(buf, d.file.name)).trim();
+            modo = "archivo";
+            if (!textoJob) {
+              emitir({ tipo: "fin", ok: false, error: "No se pudo extraer texto del archivo." });
+              continue;
+            }
+          } else {
+            textoJob = d.texto;
+            modo = d.modo;
+          }
+          await ejecutarTrabajo({ texto: textoJob, url, idioma, modo }, { emitir, signal: req.signal });
+        } catch (e) {
+          emitir({ tipo: "fin", ok: false, error: `Error inesperado: ${String(e)}` });
         }
-        return encolar(
-          () =>
-            ejecutarTrabajo(p.entrada as EntradaGeneracion, {
-              emitir: (e) => send({ job: i, ...e }),
-              signal: req.signal,
-            }),
-          (posicion) => send({ job: i, tipo: "estado", valor: "en-cola", posicion }),
-        ).catch((e) => send({ job: i, tipo: "fin", ok: false, error: `Error inesperado: ${String(e)}` }));
-      });
-
-      await Promise.allSettled(promesas);
+      }
       controller.close();
     },
   });
