@@ -53,7 +53,10 @@ export async function ejecutarTrabajo(
 
     const slug =
       (entrada.url ? slugDesdeUrl(entrada.url) : null) || crearSlug(primeraLinea(entrada.texto));
-    const idSugerido = `${fechaCorta()}-${slug}`;
+    // Sufijo de idioma para que los posts multi-idioma tengan ids distintos y
+    // autodescriptivos (el español, idioma por defecto, se queda sin sufijo).
+    const sufijoIdioma = entrada.idioma !== "es" ? `-${entrada.idioma}` : "";
+    const idSugerido = `${fechaCorta()}-${slug}${sufijoIdioma}`;
 
     emitir({ tipo: "paso", texto: "Guardando…" });
     const resumen = await almacen.guardar(

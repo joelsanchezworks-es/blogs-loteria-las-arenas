@@ -17,7 +17,9 @@ type FuenteJob =
   | { clase: "texto"; texto: string }
   | { clase: "tema"; titulo: string; datosClave: string };
 
-type ContextoLote = { url: string | null; idioma: Idioma };
+type JobFuente = { fuente: FuenteJob; idioma: Idioma };
+
+type ContextoLote = { url: string | null; idiomas: Idioma[] };
 
 type MetaCliente = {
   id: string;
@@ -44,6 +46,9 @@ type Job = {
 type Fase = "idle" | "detectando" | "confirmar" | "trabajando";
 
 const EXT_OK = [".pdf", ".docx", ".txt", ".md", ".html", ".htm"];
+
+const ORDEN_IDIOMAS: Idioma[] = ["es", "ca", "en"];
+const IDIOMA_LABEL: Record<Idioma, string> = { es: "Español", ca: "Català", en: "English" };
 
 function formatoTamano(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -88,7 +93,7 @@ export default function Generador({
 }) {
   const [texto, setTexto] = useState("");
   const [url, setUrl] = useState("");
-  const [idioma, setIdioma] = useState<Idioma>("es");
+  const [idiomas, setIdiomas] = useState<Idioma[]>(["es"]);
   const [modo, setModo] = useState<"A" | "B">("A");
   const [archivos, setArchivos] = useState<File[]>([]);
   const [arrastrando, setArrastrando] = useState(false);
@@ -104,7 +109,7 @@ export default function Generador({
 
   const inputFile = useRef<HTMLInputElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const [fuentesLote, setFuentesLote] = useState<FuenteJob[]>([]);
+  const [fuentesLote, setFuentesLote] = useState<JobFuente[]>([]);
   const [contextoLote, setContextoLote] = useState<ContextoLote | null>(null);
 
   // Precarga desde "Duplicar" del historial.
@@ -116,7 +121,7 @@ export default function Generador({
       const d = JSON.parse(bruto) as { texto?: string; url?: string; idioma?: string };
       if (d.texto) setTexto(d.texto);
       if (d.url) setUrl(d.url);
-      if (d.idioma === "es" || d.idioma === "ca" || d.idioma === "en") setIdioma(d.idioma);
+      if (d.idioma === "es" || d.idioma === "ca" || d.idioma === "en") setIdiomas([d.idioma]);
     } catch {
       /* nada */
     }
@@ -124,7 +129,7 @@ export default function Generador({
 
   const ocupado = fase === "detectando" || fase === "trabajando";
   const hayEntrada = archivos.length > 0 || texto.trim().length > 0;
-  const puedeGenerar = !bloqueado && !ocupado && hayEntrada;
+  const puedeGenerar = !bloqueado && !ocupado && hayEntrada && idiomas.length > 0;
 
   const copiar = useCallback(async (valor: string, cual: string) => {
     try {
@@ -153,21 +158,36 @@ export default function Generador({
     setArchivos((prev) => prev.filter((_, i) => i !== idx));
   }, []);
 
+  const toggleIdioma = useCallback((l: Idioma) => {
+    setIdiomas((prev) => {
+      if (prev.includes(l)) {
+        const next = prev.filter((x) => x !== l);
+        return next.length ? next : prev; // siempre al menos un idioma
+      }
+      return [...prev, l];
+    });
+  }, []);
+
   /* ── Lanzar generación por lotes (FormData directo) ── */
   const generarLote = useCallback(async (fuentes: FuenteJob[], ctx: ContextoLote) => {
-    if (fuentes.length === 0) return;
+    const idiomasOrd = ORDEN_IDIOMAS.filter((l) => ctx.idiomas.includes(l));
+    if (fuentes.length === 0 || idiomasOrd.length === 0) return;
     setFase("trabajando");
     setTrabajos([]);
     setSeleccion(0);
     setErrorGlobal(null);
-    setFuentesLote(fuentes);
-    setContextoLote(ctx);
+    // Expandimos fuentes × idiomas en el MISMO orden que el servidor (por fuente)
+    // para poder regenerar un trabajo concreto por su índice.
+    const expandido: JobFuente[] = [];
+    for (const f of fuentes) for (const idi of idiomasOrd) expandido.push({ fuente: f, idioma: idi });
+    setFuentesLote(expandido);
+    setContextoLote({ url: ctx.url, idiomas: idiomasOrd });
     const ctrl = new AbortController();
     abortRef.current = ctrl;
     try {
       const fd = new FormData();
       fd.append("url", ctx.url ?? "");
-      fd.append("idioma", ctx.idioma);
+      fd.append("idiomas", JSON.stringify(idiomasOrd));
       const temasFuente = fuentes.filter(
         (f): f is Extract<FuenteJob, { clase: "tema" }> => f.clase === "tema",
       );
@@ -283,8 +303,9 @@ export default function Generador({
 
   const regenerarUno = useCallback(
     (i: number) => {
-      const fuente = fuentesLote[i];
-      if (fuente && contextoLote) generarLote([fuente], contextoLote);
+      const item = fuentesLote[i];
+      if (item && contextoLote)
+        generarLote([item.fuente], { url: contextoLote.url, idiomas: [item.idioma] });
     },
     [fuentesLote, contextoLote, generarLote],
   );
@@ -299,8 +320,8 @@ export default function Generador({
     const fuentes: FuenteJob[] = archivos.map((f) => ({ clase: "archivo", file: f }));
     if (texto.trim()) fuentes.push({ clase: "texto", texto: texto.trim() });
     if (fuentes.length === 0) return;
-    generarLote(fuentes, { url: url.trim() || null, idioma });
-  }, [puedeGenerar, modo, archivos, texto, url, idioma, detectar, generarLote]);
+    generarLote(fuentes, { url: url.trim() || null, idiomas });
+  }, [puedeGenerar, modo, archivos, texto, url, idiomas, detectar, generarLote]);
 
   const confirmarTemas = useCallback(() => {
     const incluidos = temas.filter((t) => t.incluir && t.titulo.trim());
@@ -310,8 +331,8 @@ export default function Generador({
       titulo: t.titulo.trim(),
       datosClave: t.datosClave.trim(),
     }));
-    generarLote(fuentes, { url: url.trim() || null, idioma });
-  }, [temas, url, idioma, generarLote]);
+    generarLote(fuentes, { url: url.trim() || null, idiomas });
+  }, [temas, url, idiomas, generarLote]);
 
   const abrirCarpeta = useCallback(async (id: string) => {
     try {
@@ -477,18 +498,34 @@ export default function Generador({
         />
 
         <label className="mb-1.5 mt-4 block text-[11px] font-semibold uppercase tracking-[0.18em] text-oro/70">
-          Idioma
+          Idiomas
+          {idiomas.length > 1 && (
+            <span className="ml-2 font-normal normal-case tracking-normal text-tenue">
+              · un post por idioma
+            </span>
+          )}
         </label>
-        <select
-          value={idioma}
-          onChange={(e) => setIdioma(e.target.value as Idioma)}
-          disabled={ocupado}
-          className="w-full rounded-md border border-borde bg-noche px-3 py-2.5 text-sm text-claro focus:border-oro/60 focus:outline-none disabled:opacity-60"
-        >
-          <option value="es">Español</option>
-          <option value="ca">Català</option>
-          <option value="en">English</option>
-        </select>
+        <div className="flex gap-2">
+          {ORDEN_IDIOMAS.map((l) => {
+            const activo = idiomas.includes(l);
+            return (
+              <button
+                key={l}
+                type="button"
+                onClick={() => toggleIdioma(l)}
+                disabled={ocupado}
+                aria-pressed={activo}
+                className={`flex-1 rounded-md border px-3 py-2.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                  activo
+                    ? "border-oro/60 bg-oro/15 text-oro"
+                    : "border-borde text-tenue hover:border-oro/40"
+                }`}
+              >
+                {IDIOMA_LABEL[l]}
+              </button>
+            );
+          })}
+        </div>
 
         <button
           type="button"
@@ -496,7 +533,13 @@ export default function Generador({
           disabled={!puedeGenerar}
           className="mt-6 w-full rounded-md bg-oro px-4 py-3 text-sm font-bold uppercase tracking-[0.12em] text-noche transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          {ocupado ? "Trabajando…" : modo === "B" && archivos.length > 0 ? "✦ Detectar temas" : "✦ Generar HTML"}
+          {ocupado
+            ? "Trabajando…"
+            : modo === "B" && archivos.length > 0
+              ? "✦ Detectar temas"
+              : idiomas.length > 1
+                ? `✦ Generar HTML · ${idiomas.length} idiomas`
+                : "✦ Generar HTML"}
         </button>
         {ocupado && (
           <button
