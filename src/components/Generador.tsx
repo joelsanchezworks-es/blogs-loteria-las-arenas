@@ -374,9 +374,9 @@ export default function Generador({
     setFase("idle");
   }, []);
 
-  const toggleIdioma = useCallback((l: Idioma) => {
-    setIdiomas((prev) => (prev.includes(l) ? prev.filter((x) => x !== l) : [...prev, l]));
-  }, []);
+  // Selección de idioma ÚNICA: marcar uno deselecciona los demás (máx. 1 por
+  // generación, para no encadenar generaciones y no superar el timeout).
+  const elegirIdioma = useCallback((l: Idioma) => setIdiomas([l]), []);
 
   /* ── Botón principal ── */
   const onGenerar = useCallback(() => {
@@ -570,17 +570,17 @@ export default function Generador({
           className="w-full rounded-md border border-borde bg-noche px-3 py-2.5 text-sm text-claro placeholder:text-tenue/70 focus:border-oro/60 focus:outline-none disabled:opacity-60"
         />
 
-        {/* Selector de idiomas: marca uno, dos o los tres. Cada uno se genera
-            en su propia petición (en cola), así controlas la carga y los tiempos. */}
+        {/* Selector de idioma ÚNICO (máx. 1 por generación): marcar uno
+            deselecciona los demás. Cada generación es un post en su idioma. */}
         <label className="mb-1.5 mt-4 block text-[11px] font-semibold uppercase tracking-[0.18em] text-oro/70">
-          Idiomas
+          Idioma
           <span className="ml-2 font-normal normal-case tracking-normal text-tenue">
-            · un post por idioma marcado, en cola
+            · un idioma por generación
           </span>
         </label>
         <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
           {IDIOMAS_TODOS.map((l) => {
-            const activo = idiomas.includes(l);
+            const activo = idiomas[0] === l;
             return (
               <label
                 key={l}
@@ -592,7 +592,7 @@ export default function Generador({
                   type="checkbox"
                   checked={activo}
                   disabled={ocupado}
-                  onChange={() => toggleIdioma(l)}
+                  onChange={() => elegirIdioma(l)}
                   className="h-4 w-4 accent-[#C9A961]"
                 />
                 {IDIOMA_LABEL[l]}
@@ -600,9 +600,6 @@ export default function Generador({
             );
           })}
         </div>
-        {idiomas.length === 0 && (
-          <p className="mt-1.5 text-xs text-amber-300/90">Marca al menos un idioma.</p>
-        )}
 
         <button
           type="button"

@@ -61,22 +61,17 @@ el paso 2; si no, cópiala desde **Storage → tu base de datos → `.env.local`
 > distinto de `true`). En Vercel el sistema de archivos es de solo lectura y no hay
 > binario `claude`; el modo local no funcionaría allí.
 
-### 4. Duración de funciones y plan de Vercel
+### 4. Plan Hobby (gratuito) — compatible
 
-El prompt genera **posts largos (pillar page, ~2.500 palabras)** por SEO. Uno de
-esos posts tarda **más de 60 s** en generarse, así que:
+El prompt genera posts de **~1.200–1.500 palabras**, un tamaño pensado para que la
+generación entre en el límite de **60 s** del plan gratuito (Hobby) de Vercel
+(`maxDuration = 60`). Además, el **selector de un idioma por generación** (por
+defecto Español) evita encadenar varias generaciones seguidas. Si un post puntual
+se acercara al límite, reintenta con **Regenerar**.
 
-- **Plan Hobby (gratuito):** las funciones se cortan a **60 s**, y un post de 2.500
-  palabras NO cabe en ese margen → dará **timeout**. En Hobby solo entran posts
-  cortos.
-- **Plan Pro:** sube `maxDuration` a **300 s** en `src/app/api/generar/route.ts`
-  (una línea) y los posts largos generan sin problema.
-- **En local (modo CLI, `USE_LOCAL_STORAGE=true`):** no hay límite de tiempo; los
-  posts largos generan siempre.
-
-El selector de idiomas ayuda a controlar la carga: como **cada idioma es una
-petición independiente**, marca solo los que necesites (por defecto, solo Español)
-para no encadenar varias generaciones largas seguidas.
+Para posts más largos (guías de 2.500+ palabras) haría falta plan **Pro** (subir
+`maxDuration` a 300 en `src/app/api/generar/route.ts`) o generarlos en **local**
+(modo CLI, sin límite de tiempo).
 
 ### 5. Deploy
 
@@ -88,8 +83,8 @@ sin ellas). Listo.
 1. Importar el repo.
 2. **Storage → Create Database → Postgres → Connect** (pone `POSTGRES_URL`).
 3. **Settings → Environment Variables → añadir `ANTHROPIC_API_KEY`**.
-4. Para los posts largos (~2.500 palabras): plan **Pro** y `maxDuration = 300`
-   (en `src/app/api/generar/route.ts`). En Hobby (60 s) solo caben posts cortos.
+4. El plan **gratuito (Hobby)** es suficiente con los posts de ~1.200–1.500
+   palabras (`maxDuration = 60`).
 5. **Deploy.**
 
 ---
@@ -137,11 +132,10 @@ La interfaz tiene dos columnas (entrada / salida) y tres pestañas: **Generador*
    - **Modo B — un archivo, varios temas:** Claude lee el archivo, detecta y separa
      los temas y te muestra la lista para que confirmes, edites o descartes antes
      de generar. Luego genera un HTML por tema.
-3. Rellena la **URL de la página** (opcional) y marca los **idiomas** con las
-   casillas (Español / Català / English; por defecto solo Español). Puedes marcar
-   uno, dos o los tres: se genera **un post por idioma marcado**, cada uno en su
-   propia petición (en cola), y se guarda por separado en el historial con su
-   idioma. Marcar menos idiomas encadena menos generaciones (útil con posts largos).
+3. Rellena la **URL de la página** (opcional) y elige el **idioma** (Español /
+   Català / English; por defecto Español). Es **un idioma por generación** (marcar
+   uno deselecciona los demás); cada generación se guarda en el historial con su
+   idioma. Para otro idioma, cámbialo y vuelve a generar.
 4. Pulsa **✦ Generar HTML**. Verás el progreso en tiempo real.
 5. La salida agrupa los resultados en **pestañas por idioma** (ES · CA · EN). En cada una tienes
    pestañas **Vista previa / Código**, el bloque de **meta title / meta description**
@@ -204,7 +198,7 @@ El prompt incluye `reglas-estilo.md` + la plantilla como referencia y estas norm
 - Devuelve **solo** el HTML del cuerpo (sin `<!DOCTYPE>/<html>/<head>/<body>`, sin
   vallas markdown ni comentarios). Todo con estilos **inline**.
 - `meta title` (≤60) y `meta description` (≤155) se devuelven aparte, no en el HTML.
-- Pillar page larga, **~2.500 palabras** salvo indicación contraria. Entradilla, `H2` por bloque, CTA final.
+- Artículo de **~1.200–1.500 palabras** salvo indicación contraria. Entradilla, `H2` por bloque, CTA final.
 - Español natural de España (o el idioma elegido).
 - **No inventa datos:** fechas, precios, importes y plazos solo salen del input; si
   falta un dato clave, deja el hueco visible `[[FALTA: …]]`.

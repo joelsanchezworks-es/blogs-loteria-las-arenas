@@ -340,10 +340,10 @@ GAdmin; el bloque solo marca visualmente dónde va y qué debe mostrar.
 - **Sin promesas de ganar** ni afirmaciones sobre probabilidades de acierto.
 - **Juego responsable, +18.** Cada post cierra **siempre** con la coletilla legal
   (ver §8.12), justo después del footer de Las Arenas.
-- Extensión objetivo: **pillar page larga, MÍNIMO 2.500 palabras** de texto visible.
-  Desarrolla cada sección a fondo (varios párrafos, ejemplos, contexto útil). La
-  plantilla de ejemplo (~2.500 palabras) marca la referencia de longitud y de estilo.
-- **FAQs: 5–6** preguntas frecuentes por post (§8.9), con respuestas de 2–3 frases.
+- Extensión objetivo: **artículo de 1.200–1.500 palabras** (apunta a ~1.300) de
+  texto visible. Completo y útil, sin relleno. La plantilla de ejemplo (~2.500
+  palabras) es referencia de **estilo y módulos**, no de longitud.
+- **FAQs: 4** preguntas frecuentes por post (§8.9), respuestas de 1–2 frases.
 
 ---
 
