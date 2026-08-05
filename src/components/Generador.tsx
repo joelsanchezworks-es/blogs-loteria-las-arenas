@@ -223,43 +223,69 @@ export default function Generador({
     [],
   );
 
-  /* ── Lanzar un lote nuevo (fuentes × idiomas). ── */
+  /* ── Ejecuta UN trabajo en su PROPIA petición. Clave para Vercel Hobby: cada
+     post es una invocación serverless independiente, con sus 60s completos (si
+     se generasen los 3 idiomas en una sola petición, sumarían >60s y caducaría).
+     Mapea los eventos (job 0 del stream) al índice global i. ── */
+  const ejecutarJob = useCallback(
+    async (
+      i: number,
+      fuente: FuenteJob,
+      idioma: Idioma,
+      urlLote: string | null,
+      signal: AbortSignal,
+    ) => {
+      const fd = construirFormData([fuente], urlLote, [idioma]);
+      const resp = await fetch("/api/generar", { method: "POST", body: fd, signal });
+      await leerStream(resp, (ev) => {
+        if (ev.tipo === "lote") return; // cada petición trae su propio lote de 1
+        aplicarEvento(i, ev);
+      });
+    },
+    [construirFormData, aplicarEvento],
+  );
+
+  /* ── Lanzar un lote: fuentes × idiomas, CADA post en su propia petición
+     (secuencial), para no agotar el límite de 60s con varias generaciones. ── */
   const generarLote = useCallback(
     async (fuentes: FuenteJob[], ctx: ContextoLote) => {
       const idiomasOrd = IDIOMAS_TODOS.filter((l) => ctx.idiomas.includes(l));
       if (fuentes.length === 0 || idiomasOrd.length === 0) return;
       setFase("trabajando");
-      setTrabajos([]);
       setSeleccion(0);
       setErrorGlobal(null);
-      // Expandimos fuentes × idiomas en el MISMO orden que el servidor (por
-      // fuente) para poder regenerar un trabajo concreto por su índice.
+      // Expandimos fuentes × idiomas (por fuente). Este orden fija el índice de
+      // cada trabajo, que usamos para mostrarlo y para regenerarlo.
       const expandido: JobFuente[] = [];
       for (const f of fuentes) for (const idi of idiomasOrd) expandido.push({ fuente: f, idioma: idi });
       setFuentesLote(expandido);
       setContextoLote({ url: ctx.url, idiomas: idiomasOrd });
+      setTrabajos(
+        expandido.map(({ fuente, idioma }) => ({
+          etiqueta:
+            etiquetaFuente(fuente) + (idiomasOrd.length > 1 ? ` · ${IDIOMA_COD[idioma]}` : ""),
+          estado: "pendiente",
+          pasos: [],
+          avisos: [],
+        })),
+      );
       const ctrl = new AbortController();
       abortRef.current = ctrl;
       try {
-        const fd = construirFormData(fuentes, ctx.url, idiomasOrd);
-        const resp = await fetch("/api/generar", { method: "POST", body: fd, signal: ctrl.signal });
-        await leerStream(resp, (ev) => {
-          if (ev.tipo === "lote") {
-            const etiquetas = (ev.etiquetas as string[]) ?? [];
-            setTrabajos(
-              etiquetas.map((et) => ({ etiqueta: et, estado: "pendiente", pasos: [], avisos: [] })),
-            );
-            return;
+        for (let i = 0; i < expandido.length; i++) {
+          if (ctrl.signal.aborted) break;
+          try {
+            await ejecutarJob(i, expandido[i].fuente, expandido[i].idioma, ctx.url, ctrl.signal);
+          } catch (e) {
+            if ((e as Error).name === "AbortError") break;
+            aplicarEvento(i, { tipo: "fin", ok: false, error: `No se pudo generar: ${String(e)}` });
           }
-          aplicarEvento(typeof ev.job === "number" ? ev.job : 0, ev);
-        });
-      } catch (e) {
-        if ((e as Error).name !== "AbortError") setErrorGlobal(`No se pudo completar: ${String(e)}`);
+        }
       } finally {
         abortRef.current = null;
       }
     },
-    [construirFormData, aplicarEvento],
+    [ejecutarJob, aplicarEvento],
   );
 
   /* ── Regenerar un solo trabajo EN SITIO (sin perder los demás idiomas). ── */
@@ -277,20 +303,14 @@ export default function Generador({
       const ctrl = new AbortController();
       abortRef.current = ctrl;
       try {
-        const fd = construirFormData([item.fuente], ctx.url, [item.idioma]);
-        const resp = await fetch("/api/generar", { method: "POST", body: fd, signal: ctrl.signal });
-        // El nuevo stream trae un solo trabajo (job 0); lo mapeamos al índice i.
-        await leerStream(resp, (ev) => {
-          if (ev.tipo === "lote") return;
-          aplicarEvento(i, ev);
-        });
+        await ejecutarJob(i, item.fuente, item.idioma, ctx.url, ctrl.signal);
       } catch (e) {
         if ((e as Error).name !== "AbortError") setErrorGlobal(`No se pudo regenerar: ${String(e)}`);
       } finally {
         abortRef.current = null;
       }
     },
-    [fuentesLote, contextoLote, construirFormData, aplicarEvento],
+    [fuentesLote, contextoLote, ejecutarJob],
   );
 
   /* ── Modo B: detección de temas (todos los archivos en una petición) ── */
