@@ -47,7 +47,9 @@ type Fase = "idle" | "detectando" | "confirmar" | "trabajando";
 
 const EXT_OK = [".pdf", ".docx", ".txt", ".md", ".html", ".htm"];
 
-const ORDEN_IDIOMAS: Idioma[] = ["es", "ca", "en"];
+// Siempre se generan los tres idiomas, un post por idioma. No hay selector.
+const IDIOMAS_TODOS: Idioma[] = ["es", "ca", "en"];
+const IDIOMA_COD: Record<Idioma, string> = { es: "ES", ca: "CA", en: "EN" };
 const IDIOMA_LABEL: Record<Idioma, string> = { es: "Español", ca: "Català", en: "English" };
 
 function formatoTamano(bytes: number): string {
@@ -59,6 +61,21 @@ function formatoTamano(bytes: number): string {
 function tipoDeNombre(nombre: string): string {
   const punto = nombre.lastIndexOf(".");
   return punto >= 0 ? nombre.slice(punto + 1).toUpperCase() : "?";
+}
+
+function etiquetaFuente(f: FuenteJob): string {
+  if (f.clase === "archivo") return f.file.name;
+  if (f.clase === "tema") return f.titulo;
+  return f.texto.slice(0, 60);
+}
+
+/** Estado agregado de un idioma a partir de los estados de sus trabajos. */
+function estadoIdioma(indices: number[], trabajos: Job[]): EstadoJob {
+  const estados = indices.map((i) => trabajos[i]?.estado).filter(Boolean) as EstadoJob[];
+  if (estados.some((e) => e === "error")) return "error";
+  if (estados.some((e) => e === "generando")) return "generando";
+  if (estados.length > 0 && estados.every((e) => e === "listo")) return "listo";
+  return "pendiente";
 }
 
 async function leerStream(resp: Response, onEvento: (ev: Record<string, unknown>) => void) {
@@ -93,7 +110,6 @@ export default function Generador({
 }) {
   const [texto, setTexto] = useState("");
   const [url, setUrl] = useState("");
-  const [idiomas, setIdiomas] = useState<Idioma[]>(["es"]);
   const [modo, setModo] = useState<"A" | "B">("A");
   const [archivos, setArchivos] = useState<File[]>([]);
   const [arrastrando, setArrastrando] = useState(false);
@@ -118,10 +134,9 @@ export default function Generador({
       const bruto = sessionStorage.getItem("duplicar-llarenas");
       if (!bruto) return;
       sessionStorage.removeItem("duplicar-llarenas");
-      const d = JSON.parse(bruto) as { texto?: string; url?: string; idioma?: string };
+      const d = JSON.parse(bruto) as { texto?: string; url?: string };
       if (d.texto) setTexto(d.texto);
       if (d.url) setUrl(d.url);
-      if (d.idioma === "es" || d.idioma === "ca" || d.idioma === "en") setIdiomas([d.idioma]);
     } catch {
       /* nada */
     }
@@ -129,7 +144,7 @@ export default function Generador({
 
   const ocupado = fase === "detectando" || fase === "trabajando";
   const hayEntrada = archivos.length > 0 || texto.trim().length > 0;
-  const puedeGenerar = !bloqueado && !ocupado && hayEntrada && idiomas.length > 0;
+  const puedeGenerar = !bloqueado && !ocupado && hayEntrada;
 
   const copiar = useCallback(async (valor: string, cual: string) => {
     try {
@@ -158,36 +173,37 @@ export default function Generador({
     setArchivos((prev) => prev.filter((_, i) => i !== idx));
   }, []);
 
-  const toggleIdioma = useCallback((l: Idioma) => {
-    setIdiomas((prev) => {
-      if (prev.includes(l)) {
-        const next = prev.filter((x) => x !== l);
-        return next.length ? next : prev; // siempre al menos un idioma
+  /** Aplica un evento del stream a un trabajo concreto (por índice global). */
+  const aplicarEvento = useCallback((idx: number, ev: Record<string, unknown>) => {
+    const tipo = ev.tipo;
+    setTrabajos((prev) => {
+      const copia = [...prev];
+      const job = copia[idx];
+      if (!job) return prev;
+      if (tipo === "paso") {
+        job.estado = "generando";
+        job.pasos = [...job.pasos, String(ev.texto)];
+      } else if (tipo === "aviso") {
+        job.avisos = [...job.avisos, String(ev.texto)];
+      } else if (tipo === "fin") {
+        if (ev.ok) {
+          job.estado = "listo";
+          job.resultado = { id: String(ev.id), html: String(ev.html), meta: ev.meta as MetaCliente };
+        } else {
+          job.estado = "error";
+          job.error = String(ev.error || "Error desconocido.");
+        }
       }
-      return [...prev, l];
+      return copia;
     });
   }, []);
 
-  /* ── Lanzar generación por lotes (FormData directo) ── */
-  const generarLote = useCallback(async (fuentes: FuenteJob[], ctx: ContextoLote) => {
-    const idiomasOrd = ORDEN_IDIOMAS.filter((l) => ctx.idiomas.includes(l));
-    if (fuentes.length === 0 || idiomasOrd.length === 0) return;
-    setFase("trabajando");
-    setTrabajos([]);
-    setSeleccion(0);
-    setErrorGlobal(null);
-    // Expandimos fuentes × idiomas en el MISMO orden que el servidor (por fuente)
-    // para poder regenerar un trabajo concreto por su índice.
-    const expandido: JobFuente[] = [];
-    for (const f of fuentes) for (const idi of idiomasOrd) expandido.push({ fuente: f, idioma: idi });
-    setFuentesLote(expandido);
-    setContextoLote({ url: ctx.url, idiomas: idiomasOrd });
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
-    try {
+  /** Construye el FormData común (url + idiomas + fuentes). */
+  const construirFormData = useCallback(
+    (fuentes: FuenteJob[], urlLote: string | null, idiomas: Idioma[]) => {
       const fd = new FormData();
-      fd.append("url", ctx.url ?? "");
-      fd.append("idiomas", JSON.stringify(idiomasOrd));
+      fd.append("url", urlLote ?? "");
+      fd.append("idiomas", JSON.stringify(idiomas));
       const temasFuente = fuentes.filter(
         (f): f is Extract<FuenteJob, { clase: "tema" }> => f.clase === "tema",
       );
@@ -202,45 +218,80 @@ export default function Generador({
           else if (f.clase === "texto") fd.append("texto", f.texto);
         }
       }
+      return fd;
+    },
+    [],
+  );
 
-      const resp = await fetch("/api/generar", { method: "POST", body: fd, signal: ctrl.signal });
-      await leerStream(resp, (ev) => {
-        const tipo = ev.tipo;
-        if (tipo === "lote") {
-          const etiquetas = (ev.etiquetas as string[]) ?? [];
-          setTrabajos(
-            etiquetas.map((et) => ({ etiqueta: et, estado: "pendiente", pasos: [], avisos: [] })),
-          );
-          return;
-        }
-        const j = typeof ev.job === "number" ? ev.job : 0;
-        setTrabajos((prev) => {
-          const copia = [...prev];
-          const job = copia[j];
-          if (!job) return prev;
-          if (tipo === "paso") {
-            job.estado = "generando";
-            job.pasos = [...job.pasos, String(ev.texto)];
-          } else if (tipo === "aviso") {
-            job.avisos = [...job.avisos, String(ev.texto)];
-          } else if (tipo === "fin") {
-            if (ev.ok) {
-              job.estado = "listo";
-              job.resultado = { id: String(ev.id), html: String(ev.html), meta: ev.meta as MetaCliente };
-            } else {
-              job.estado = "error";
-              job.error = String(ev.error || "Error desconocido.");
-            }
+  /* ── Lanzar un lote nuevo (fuentes × idiomas). ── */
+  const generarLote = useCallback(
+    async (fuentes: FuenteJob[], ctx: ContextoLote) => {
+      const idiomasOrd = IDIOMAS_TODOS.filter((l) => ctx.idiomas.includes(l));
+      if (fuentes.length === 0 || idiomasOrd.length === 0) return;
+      setFase("trabajando");
+      setTrabajos([]);
+      setSeleccion(0);
+      setErrorGlobal(null);
+      // Expandimos fuentes × idiomas en el MISMO orden que el servidor (por
+      // fuente) para poder regenerar un trabajo concreto por su índice.
+      const expandido: JobFuente[] = [];
+      for (const f of fuentes) for (const idi of idiomasOrd) expandido.push({ fuente: f, idioma: idi });
+      setFuentesLote(expandido);
+      setContextoLote({ url: ctx.url, idiomas: idiomasOrd });
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
+      try {
+        const fd = construirFormData(fuentes, ctx.url, idiomasOrd);
+        const resp = await fetch("/api/generar", { method: "POST", body: fd, signal: ctrl.signal });
+        await leerStream(resp, (ev) => {
+          if (ev.tipo === "lote") {
+            const etiquetas = (ev.etiquetas as string[]) ?? [];
+            setTrabajos(
+              etiquetas.map((et) => ({ etiqueta: et, estado: "pendiente", pasos: [], avisos: [] })),
+            );
+            return;
           }
-          return copia;
+          aplicarEvento(typeof ev.job === "number" ? ev.job : 0, ev);
         });
+      } catch (e) {
+        if ((e as Error).name !== "AbortError") setErrorGlobal(`No se pudo completar: ${String(e)}`);
+      } finally {
+        abortRef.current = null;
+      }
+    },
+    [construirFormData, aplicarEvento],
+  );
+
+  /* ── Regenerar un solo trabajo EN SITIO (sin perder los demás idiomas). ── */
+  const regenerarEnSitio = useCallback(
+    async (i: number) => {
+      const item = fuentesLote[i];
+      const ctx = contextoLote;
+      if (!item || !ctx) return;
+      setSeleccion(i);
+      setTrabajos((prev) => {
+        const copia = [...prev];
+        if (copia[i]) copia[i] = { ...copia[i], estado: "pendiente", pasos: [], avisos: [], error: undefined, resultado: undefined };
+        return copia;
       });
-    } catch (e) {
-      if ((e as Error).name !== "AbortError") setErrorGlobal(`No se pudo completar: ${String(e)}`);
-    } finally {
-      abortRef.current = null;
-    }
-  }, []);
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
+      try {
+        const fd = construirFormData([item.fuente], ctx.url, [item.idioma]);
+        const resp = await fetch("/api/generar", { method: "POST", body: fd, signal: ctrl.signal });
+        // El nuevo stream trae un solo trabajo (job 0); lo mapeamos al índice i.
+        await leerStream(resp, (ev) => {
+          if (ev.tipo === "lote") return;
+          aplicarEvento(i, ev);
+        });
+      } catch (e) {
+        if ((e as Error).name !== "AbortError") setErrorGlobal(`No se pudo regenerar: ${String(e)}`);
+      } finally {
+        abortRef.current = null;
+      }
+    },
+    [fuentesLote, contextoLote, construirFormData, aplicarEvento],
+  );
 
   /* ── Modo B: detección de temas (todos los archivos en una petición) ── */
   const detectar = useCallback(async () => {
@@ -301,15 +352,6 @@ export default function Generador({
     setFase("idle");
   }, []);
 
-  const regenerarUno = useCallback(
-    (i: number) => {
-      const item = fuentesLote[i];
-      if (item && contextoLote)
-        generarLote([item.fuente], { url: contextoLote.url, idiomas: [item.idioma] });
-    },
-    [fuentesLote, contextoLote, generarLote],
-  );
-
   /* ── Botón principal ── */
   const onGenerar = useCallback(() => {
     if (!puedeGenerar) return;
@@ -320,8 +362,8 @@ export default function Generador({
     const fuentes: FuenteJob[] = archivos.map((f) => ({ clase: "archivo", file: f }));
     if (texto.trim()) fuentes.push({ clase: "texto", texto: texto.trim() });
     if (fuentes.length === 0) return;
-    generarLote(fuentes, { url: url.trim() || null, idiomas });
-  }, [puedeGenerar, modo, archivos, texto, url, idiomas, detectar, generarLote]);
+    generarLote(fuentes, { url: url.trim() || null, idiomas: IDIOMAS_TODOS });
+  }, [puedeGenerar, modo, archivos, texto, url, detectar, generarLote]);
 
   const confirmarTemas = useCallback(() => {
     const incluidos = temas.filter((t) => t.incluir && t.titulo.trim());
@@ -331,8 +373,8 @@ export default function Generador({
       titulo: t.titulo.trim(),
       datosClave: t.datosClave.trim(),
     }));
-    generarLote(fuentes, { url: url.trim() || null, idiomas });
-  }, [temas, url, idiomas, generarLote]);
+    generarLote(fuentes, { url: url.trim() || null, idiomas: IDIOMAS_TODOS });
+  }, [temas, url, generarLote]);
 
   const abrirCarpeta = useCallback(async (id: string) => {
     try {
@@ -375,8 +417,13 @@ export default function Generador({
     URL.revokeObjectURL(a.href);
   }, []);
 
-  const jobSel = trabajos[seleccion];
   const idsListos = trabajos.filter((t) => t.resultado).map((t) => t.resultado!.id);
+  const idiomasPresentes = IDIOMAS_TODOS.filter((idi) => fuentesLote.some((jf) => jf.idioma === idi));
+  const indicesIdioma = (idi: Idioma) =>
+    trabajos.map((_, i) => i).filter((i) => fuentesLote[i]?.idioma === idi);
+  const idiomaActivo: Idioma = fuentesLote[seleccion]?.idioma ?? idiomasPresentes[0] ?? "es";
+  const indicesActual = indicesIdioma(idiomaActivo);
+  const jobSel = trabajos[seleccion];
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -497,34 +544,15 @@ export default function Generador({
           className="w-full rounded-md border border-borde bg-noche px-3 py-2.5 text-sm text-claro placeholder:text-tenue/70 focus:border-oro/60 focus:outline-none disabled:opacity-60"
         />
 
-        <label className="mb-1.5 mt-4 block text-[11px] font-semibold uppercase tracking-[0.18em] text-oro/70">
-          Idiomas
-          {idiomas.length > 1 && (
-            <span className="ml-2 font-normal normal-case tracking-normal text-tenue">
-              · un post por idioma
-            </span>
-          )}
-        </label>
-        <div className="flex gap-2">
-          {ORDEN_IDIOMAS.map((l) => {
-            const activo = idiomas.includes(l);
-            return (
-              <button
-                key={l}
-                type="button"
-                onClick={() => toggleIdioma(l)}
-                disabled={ocupado}
-                aria-pressed={activo}
-                className={`flex-1 rounded-md border px-3 py-2.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
-                  activo
-                    ? "border-oro/60 bg-oro/15 text-oro"
-                    : "border-borde text-tenue hover:border-oro/40"
-                }`}
-              >
-                {IDIOMA_LABEL[l]}
-              </button>
-            );
-          })}
+        {/* Los tres idiomas se generan siempre; no hay selector. */}
+        <div className="mt-4 flex items-center gap-2 rounded-md border border-borde bg-noche/40 px-3 py-2.5">
+          <span className="text-oro/70" aria-hidden>
+            🌐
+          </span>
+          <p className="text-xs text-tenue">
+            Se generan los <span className="text-claro">3 idiomas</span> automáticamente:{" "}
+            <span className="text-claro">Español · Català · English</span> (un post por idioma).
+          </p>
         </div>
 
         <button
@@ -537,9 +565,7 @@ export default function Generador({
             ? "Trabajando…"
             : modo === "B" && archivos.length > 0
               ? "✦ Detectar temas"
-              : idiomas.length > 1
-                ? `✦ Generar HTML · ${idiomas.length} idiomas`
-                : "✦ Generar HTML"}
+              : "✦ Generar HTML · ES · CA · EN"}
         </button>
         {ocupado && (
           <button
@@ -592,20 +618,42 @@ export default function Generador({
                 </button>
               </div>
             )}
-            {trabajos.length > 1 && (
-              <ListaTrabajos trabajos={trabajos} seleccion={seleccion} onSelect={setSeleccion} />
+
+            {/* Pestañas por idioma: ES | CA | EN */}
+            {idiomasPresentes.length > 1 && (
+              <TabsIdioma
+                idiomas={idiomasPresentes}
+                activo={idiomaActivo}
+                estadoDe={(idi) => estadoIdioma(indicesIdioma(idi), trabajos)}
+                onSelect={(idi) => setSeleccion(indicesIdioma(idi)[0] ?? 0)}
+              />
             )}
+
+            {/* Si dentro del idioma hay varias fuentes, sub-lista para elegir. */}
+            {indicesActual.length > 1 && (
+              <ListaTrabajos
+                items={indicesActual.map((i) => ({
+                  index: i,
+                  etiqueta: fuentesLote[i] ? etiquetaFuente(fuentesLote[i].fuente) : trabajos[i].etiqueta,
+                  estado: trabajos[i].estado,
+                }))}
+                seleccion={seleccion}
+                onSelect={setSeleccion}
+              />
+            )}
+
             {jobSel && (
               <VistaTrabajo
                 job={jobSel}
                 copiado={copiado}
                 modoLocal={modoLocal}
+                idioma={fuentesLote[seleccion]?.idioma}
                 onCopiarHtml={() => jobSel.resultado && copiar(jobSel.resultado.html, "html")}
                 onCopiarMt={() => jobSel.resultado && copiar(jobSel.resultado.meta.metaTitle, "mt")}
                 onCopiarMd={() => jobSel.resultado && copiar(jobSel.resultado.meta.metaDescription, "md")}
                 onDescargar={() => jobSel.resultado && descargar(jobSel.resultado)}
                 onAbrirCarpeta={() => jobSel.resultado && abrirCarpeta(jobSel.resultado.id)}
-                onRegenerar={() => regenerarUno(seleccion)}
+                onRegenerar={() => regenerarEnSitio(seleccion)}
               />
             )}
           </div>
@@ -622,7 +670,7 @@ function EstadoVacio() {
     <div className="flex min-h-[360px] flex-col items-center justify-center rounded-lg border border-dashed border-borde px-6 text-center">
       <div className="mb-3 h-[2px] w-9 rounded bg-oro/60" aria-hidden />
       <p className="max-w-xs text-sm leading-relaxed text-tenue">
-        Esperando tema. Sube un archivo o escribe el tema y pulsa Generar.
+        Esperando tema. Sube un archivo o escribe el tema y pulsa Generar; se crean los tres idiomas.
       </p>
     </div>
   );
@@ -670,7 +718,7 @@ function EditorTemas({
     <div>
       <p className="mb-3 text-sm text-claro">
         Se han detectado <strong className="text-oro">{temas.length}</strong> temas. Revisa, edita o
-        descarta y confirma para generar.
+        descarta y confirma para generar (cada tema, en los 3 idiomas).
       </p>
       <ul className="max-h-[380px] space-y-2 overflow-auto pr-1">
         {temas.map((t, i) => (
@@ -713,7 +761,7 @@ function EditorTemas({
           disabled={incluidos === 0}
           className="flex-1 rounded-md bg-oro px-4 py-2.5 text-sm font-bold uppercase tracking-[0.1em] text-noche hover:opacity-90 disabled:opacity-40"
         >
-          Generar {incluidos} post{incluidos === 1 ? "" : "s"}
+          Generar {incluidos} tema{incluidos === 1 ? "" : "s"} × 3 idiomas
         </button>
         <button
           type="button"
@@ -734,29 +782,63 @@ const COLOR_ESTADO: Record<EstadoJob, string> = {
   error: "bg-red-400",
 };
 
+function TabsIdioma({
+  idiomas,
+  activo,
+  estadoDe,
+  onSelect,
+}: {
+  idiomas: Idioma[];
+  activo: Idioma;
+  estadoDe: (idi: Idioma) => EstadoJob;
+  onSelect: (idi: Idioma) => void;
+}) {
+  return (
+    <div className="mb-4 flex gap-1 rounded-md border border-borde p-1">
+      {idiomas.map((idi) => {
+        const on = idi === activo;
+        return (
+          <button
+            key={idi}
+            type="button"
+            onClick={() => onSelect(idi)}
+            title={IDIOMA_LABEL[idi]}
+            className={`flex flex-1 items-center justify-center gap-2 rounded px-3 py-1.5 text-xs font-semibold transition-colors ${
+              on ? "bg-oro/15 text-oro" : "text-tenue hover:text-claro"
+            }`}
+          >
+            <span className={`h-2 w-2 rounded-full ${COLOR_ESTADO[estadoDe(idi)]}`} aria-hidden />
+            {IDIOMA_COD[idi]}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function ListaTrabajos({
-  trabajos,
+  items,
   seleccion,
   onSelect,
 }: {
-  trabajos: Job[];
+  items: { index: number; etiqueta: string; estado: EstadoJob }[];
   seleccion: number;
   onSelect: (i: number) => void;
 }) {
   return (
     <ul className="mb-4 space-y-1.5">
-      {trabajos.map((t, i) => (
-        <li key={i}>
+      {items.map(({ index, etiqueta, estado }) => (
+        <li key={index}>
           <button
             type="button"
-            onClick={() => onSelect(i)}
+            onClick={() => onSelect(index)}
             className={`flex w-full items-center gap-2 rounded-md border px-3 py-2 text-left text-xs transition-colors ${
-              i === seleccion ? "border-oro/50 bg-oro/10" : "border-borde hover:border-oro/30"
+              index === seleccion ? "border-oro/50 bg-oro/10" : "border-borde hover:border-oro/30"
             }`}
           >
-            <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${COLOR_ESTADO[t.estado]}`} aria-hidden />
-            <span className="flex-1 truncate text-claro">{t.etiqueta}</span>
-            <span className="shrink-0 text-tenue">{t.estado}</span>
+            <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${COLOR_ESTADO[estado]}`} aria-hidden />
+            <span className="flex-1 truncate text-claro">{etiqueta}</span>
+            <span className="shrink-0 text-tenue">{estado}</span>
           </button>
         </li>
       ))}
@@ -768,6 +850,7 @@ function VistaTrabajo({
   job,
   copiado,
   modoLocal,
+  idioma,
   onCopiarHtml,
   onCopiarMt,
   onCopiarMd,
@@ -778,6 +861,7 @@ function VistaTrabajo({
   job: Job;
   copiado: string | null;
   modoLocal: boolean;
+  idioma?: Idioma;
   onCopiarHtml: () => void;
   onCopiarMt: () => void;
   onCopiarMd: () => void;
@@ -790,14 +874,28 @@ function VistaTrabajo({
   if (job.estado === "error") {
     return (
       <div className="rounded-lg border border-red-500/50 bg-red-500/10 p-4">
-        <p className="text-sm font-bold text-red-300">No se pudo generar</p>
+        <p className="text-sm font-bold text-red-300">
+          No se pudo generar{idioma ? ` · ${IDIOMA_COD[idioma]}` : ""}
+        </p>
         <p className="mt-1 text-sm text-red-200/90">{job.error}</p>
+        <button
+          type="button"
+          onClick={onRegenerar}
+          className="mt-3 rounded-md border border-borde px-3 py-1.5 text-xs font-medium text-claro hover:border-oro/50"
+        >
+          Regenerar
+        </button>
       </div>
     );
   }
 
   if (job.estado !== "listo" || !job.resultado) {
-    return <Progreso titulo="Generando…" pasos={job.pasos} />;
+    return (
+      <Progreso
+        titulo={`Generando${idioma ? ` · ${IDIOMA_LABEL[idioma]}` : ""}…`}
+        pasos={job.pasos}
+      />
+    );
   }
 
   const { html, meta } = job.resultado;
@@ -811,6 +909,12 @@ function VistaTrabajo({
             </p>
           ))}
         </div>
+      )}
+
+      {idioma && (
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-oro/70">
+          {IDIOMA_LABEL[idioma]}
+        </p>
       )}
 
       <div className="mb-3 flex gap-1 rounded-md border border-borde p-1">
@@ -848,7 +952,9 @@ function VistaTrabajo({
         {modoLocal && <Boton onClick={onAbrirCarpeta}>Abrir carpeta</Boton>}
       </div>
       <p className="mt-2 text-xs text-tenue">
-        {meta.palabras} palabras · {modoLocal ? `guardado en historial/${meta.id}` : "guardado en el historial"}
+        {meta.palabras} palabras
+        {idioma ? ` · ${IDIOMA_COD[idioma]}` : ""} ·{" "}
+        {modoLocal ? `guardado en historial/${meta.id}` : "guardado en el historial"}
       </p>
     </div>
   );

@@ -126,14 +126,15 @@ La interfaz tiene dos columnas (entrada / salida) y tres pestañas: **Generador*
    - **Modo B — un archivo, varios temas:** Claude lee el archivo, detecta y separa
      los temas y te muestra la lista para que confirmes, edites o descartes antes
      de generar. Luego genera un HTML por tema.
-3. Rellena la **URL de la página** (opcional) y marca uno o varios **idiomas**
-   (Español / Català / English). Si marcas varios, se genera **un post por idioma**
+3. Rellena la **URL de la página** (opcional). No hay que elegir idioma: se
+   generan **siempre los 3** (Español, Català, English), **un post por idioma**
    (en cola), y cada uno se guarda por separado en el historial con su idioma.
 4. Pulsa **✦ Generar HTML**. Verás el progreso en tiempo real.
-5. En la salida tienes pestañas **Vista previa / Código**, el bloque de **meta
-   title / meta description** copiables, y los botones **Copiar HTML**,
-   **Descargar .html** y **Regenerar** (más **Abrir carpeta** en modo local). Con
-   varios trabajos, una lista con el estado de cada uno y **Descargar todos (ZIP)**.
+5. La salida agrupa los resultados en **pestañas ES · CA · EN**. En cada una tienes
+   pestañas **Vista previa / Código**, el bloque de **meta title / meta description**
+   copiables, y los botones **Copiar HTML**, **Descargar .html** y **Regenerar**
+   (más **Abrir carpeta** en modo local). **Regenerar** rehace solo ese idioma sin
+   perder los otros. Con varios posts, **Descargar todos (ZIP)**.
 
 Las entradas por texto y por archivo se pueden usar por separado o combinadas.
 Los trabajos se procesan **de uno en uno** (secuencial): si sueltas 6 PDFs, no se
