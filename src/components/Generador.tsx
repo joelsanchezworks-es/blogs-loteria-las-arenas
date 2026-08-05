@@ -113,6 +113,7 @@ export default function Generador({
   const [modo, setModo] = useState<"A" | "B">("A");
   const [archivos, setArchivos] = useState<File[]>([]);
   const [arrastrando, setArrastrando] = useState(false);
+  const [idiomas, setIdiomas] = useState<Idioma[]>(["es"]); // por defecto solo ES
 
   const [fase, setFase] = useState<Fase>("idle");
   const [pasosDeteccion, setPasosDeteccion] = useState<string[]>([]);
@@ -134,9 +135,10 @@ export default function Generador({
       const bruto = sessionStorage.getItem("duplicar-llarenas");
       if (!bruto) return;
       sessionStorage.removeItem("duplicar-llarenas");
-      const d = JSON.parse(bruto) as { texto?: string; url?: string };
+      const d = JSON.parse(bruto) as { texto?: string; url?: string; idioma?: string };
       if (d.texto) setTexto(d.texto);
       if (d.url) setUrl(d.url);
+      if (d.idioma === "es" || d.idioma === "ca" || d.idioma === "en") setIdiomas([d.idioma]);
     } catch {
       /* nada */
     }
@@ -144,7 +146,7 @@ export default function Generador({
 
   const ocupado = fase === "detectando" || fase === "trabajando";
   const hayEntrada = archivos.length > 0 || texto.trim().length > 0;
-  const puedeGenerar = !bloqueado && !ocupado && hayEntrada;
+  const puedeGenerar = !bloqueado && !ocupado && hayEntrada && idiomas.length > 0;
 
   const copiar = useCallback(async (valor: string, cual: string) => {
     try {
@@ -372,6 +374,10 @@ export default function Generador({
     setFase("idle");
   }, []);
 
+  const toggleIdioma = useCallback((l: Idioma) => {
+    setIdiomas((prev) => (prev.includes(l) ? prev.filter((x) => x !== l) : [...prev, l]));
+  }, []);
+
   /* ── Botón principal ── */
   const onGenerar = useCallback(() => {
     if (!puedeGenerar) return;
@@ -382,8 +388,8 @@ export default function Generador({
     const fuentes: FuenteJob[] = archivos.map((f) => ({ clase: "archivo", file: f }));
     if (texto.trim()) fuentes.push({ clase: "texto", texto: texto.trim() });
     if (fuentes.length === 0) return;
-    generarLote(fuentes, { url: url.trim() || null, idiomas: IDIOMAS_TODOS });
-  }, [puedeGenerar, modo, archivos, texto, url, detectar, generarLote]);
+    generarLote(fuentes, { url: url.trim() || null, idiomas });
+  }, [puedeGenerar, modo, archivos, texto, url, idiomas, detectar, generarLote]);
 
   const confirmarTemas = useCallback(() => {
     const incluidos = temas.filter((t) => t.incluir && t.titulo.trim());
@@ -393,8 +399,8 @@ export default function Generador({
       titulo: t.titulo.trim(),
       datosClave: t.datosClave.trim(),
     }));
-    generarLote(fuentes, { url: url.trim() || null, idiomas: IDIOMAS_TODOS });
-  }, [temas, url, generarLote]);
+    generarLote(fuentes, { url: url.trim() || null, idiomas });
+  }, [temas, url, idiomas, generarLote]);
 
   const abrirCarpeta = useCallback(async (id: string) => {
     try {
@@ -564,16 +570,39 @@ export default function Generador({
           className="w-full rounded-md border border-borde bg-noche px-3 py-2.5 text-sm text-claro placeholder:text-tenue/70 focus:border-oro/60 focus:outline-none disabled:opacity-60"
         />
 
-        {/* Los tres idiomas se generan siempre; no hay selector. */}
-        <div className="mt-4 flex items-center gap-2 rounded-md border border-borde bg-noche/40 px-3 py-2.5">
-          <span className="text-oro/70" aria-hidden>
-            🌐
+        {/* Selector de idiomas: marca uno, dos o los tres. Cada uno se genera
+            en su propia petición (en cola), así controlas la carga y los tiempos. */}
+        <label className="mb-1.5 mt-4 block text-[11px] font-semibold uppercase tracking-[0.18em] text-oro/70">
+          Idiomas
+          <span className="ml-2 font-normal normal-case tracking-normal text-tenue">
+            · un post por idioma marcado, en cola
           </span>
-          <p className="text-xs text-tenue">
-            Se generan los <span className="text-claro">3 idiomas</span> automáticamente:{" "}
-            <span className="text-claro">Español · Català · English</span> (un post por idioma).
-          </p>
+        </label>
+        <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
+          {IDIOMAS_TODOS.map((l) => {
+            const activo = idiomas.includes(l);
+            return (
+              <label
+                key={l}
+                className={`flex items-center gap-2 rounded-md border px-3 py-2.5 text-sm transition-colors ${
+                  activo ? "border-oro/60 bg-oro/10 text-claro" : "border-borde text-tenue hover:border-oro/40"
+                } ${ocupado ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={activo}
+                  disabled={ocupado}
+                  onChange={() => toggleIdioma(l)}
+                  className="h-4 w-4 accent-[#C9A961]"
+                />
+                {IDIOMA_LABEL[l]}
+              </label>
+            );
+          })}
         </div>
+        {idiomas.length === 0 && (
+          <p className="mt-1.5 text-xs text-amber-300/90">Marca al menos un idioma.</p>
+        )}
 
         <button
           type="button"
@@ -585,7 +614,7 @@ export default function Generador({
             ? "Trabajando…"
             : modo === "B" && archivos.length > 0
               ? "✦ Detectar temas"
-              : "✦ Generar HTML · ES · CA · EN"}
+              : `✦ Generar HTML${idiomas.length ? " · " + idiomas.map((l) => IDIOMA_COD[l]).join(" · ") : ""}`}
         </button>
         {ocupado && (
           <button

@@ -49,22 +49,22 @@ ${refs.plantilla}
 ===== NORMAS DURAS =====
 - Todo el estilo va inline (cero clases, cero <style>). Misma paleta que la plantilla (#1b1d39 / #13152a / #caa669 / #f2f2f2) y mismos módulos.
 - El HTML es SOLO el cuerpo del artículo: empieza por el <div> wrapper exterior y termina cerrando los dos <div> + la coletilla legal +18. NADA de <!DOCTYPE>, <html>, <head>, <body>, ni vallas markdown, ni comentarios extra.
-- TAMAÑO (importante para el rendimiento): mantén el HTML lo más compacto posible SIN eliminar ninguna sección. Lo que más ocupa no es el texto sino los estilos inline, así que:
-  · Copy afilado y breve: 1 párrafo corto por sección (2 como máximo), ~300–350 palabras de texto visible en total. Sin relleno ni ideas repetidas.
-  · Estilos inline CORTOS: usa hex en vez de rgba largos cuando el color se ve igual sobre el fondo oscuro (cuerpo #b8b8b8 en vez de rgba(242,242,242,0.7); notas #8f8f8f; secundario #6f6f6f; dorado #caa669; claro #f2f2f2; tarjeta #13152a). Omite propiedades no imprescindibles y no repitas bloques decorativos.
-  · UN solo placeholder de imagen (en el hero); sin más imágenes.
-  · FAQs: 3, con respuesta de UNA frase.
-  · No anides <div> más de lo necesario.
+- EXTENSIÓN (requisito OBLIGATORIO y prioritario): el post DEBE tener AL MENOS 2.500 palabras de texto visible. Es una guía larga y exhaustiva, escrita a propósito con mucho detalle. Un post corto se considera un ERROR; no cierres hasta superar las 2.500 palabras.
+  · Desarrolla CADA sección con 3–5 párrafos sustanciales (no uno). Aporta contexto, explicaciones paso a paso, ejemplos, historia del sorteo, comparativas y matices útiles en cada bloque.
+  · Da cuerpo con módulos y sub-bloques de las reglas: caja destacada (§8.3), tarjeta oscura (§8.4), tabla de premios (§8.7 si hay importes), sub-secciones con <h3> (§4). Sin inventar datos.
+  · Las 5–6 FAQs, con respuestas completas de 2–4 frases.
+  · Antes de cerrar, verifica que superas las 2.500 palabras; si te quedas corto, AMPLÍA las secciones con más desarrollo real y útil (nunca relleno repetido).
+  · Estilos inline de la plantilla; puedes usar hex corto (cuerpo #b8b8b8, notas #8f8f8f, dorado #caa669, claro #f2f2f2, tarjeta #13152a). La prioridad es un texto extenso y de calidad.
 - ESTRUCTURA FIJA — incluye TODAS estas secciones, en este orden, sin añadir otras:
   1) HERO (§8.1): barrita + antetítulo + <h1> + lead dorado + botón CTA + placeholder de imagen (§9).
   2) INTRO: un párrafo lead con barra dorada (§5.2); si hay fecha/precio, añade el aviso de datos clave (§8.2).
   3) VENTAJAS: <h2> con su barrita + 2–3 ventajas breves (por qué Las Arenas: oficialidad, sin comisiones, décimo original, historial §1B), con flechas → (§7) o caja destacada (§8.3).
   4) CÓMO COMPRAR: <h2> con su barrita + pasos concisos (online con el CTA a la URL, o en la administración).
   5) CITA DE VÍCTOR (§8.8): tarjeta oscura con su testimonio, firmada "Víctor — Lotería Las Arenas, Adm. nº 336 · Barcelona".
-  6) FAQs: EXACTAMENTE 3 (§8.9, acordeón <details>), respuestas de 1–2 frases cada una.
+  6) FAQs: 5–6 preguntas frecuentes (§8.9, acordeón <details>), con respuestas desarrolladas de 2–3 frases cada una.
   7) CTA FINAL (§8.10): caja grande de cierre con botón sólido.
   8) FOOTER (§8.11) + coletilla legal +18 (§8.12) como última línea.
-- Cada sección, breve (1–3 párrafos cortos). Si algo no cabe en ~6.000 caracteres, recorta el copy de las secciones; nunca elimines una sección ni dejes el HTML a medias.
+- Desarrolla TODAS las secciones por completo hasta alcanzar las 2.500+ palabras. Nunca elimines una sección ni dejes el HTML a medias.
 - NO INVENTES DATOS. Fechas de sorteo, precios del décimo, importes de premio, plazos y condiciones SOLO salen de los datos del post. Si falta un dato clave, deja el hueco visible como [[FALTA: descripción]]. Prefiere el hueco a inventar.
 - Imágenes: NO inventes URLs; usa el bloque placeholder dorado punteado de las reglas (§9).
 - Constantes de negocio (§1B): úsalas siempre (dirección, teléfono, nº 336, historial de premios, voz de Víctor).
