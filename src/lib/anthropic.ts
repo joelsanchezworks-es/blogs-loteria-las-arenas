@@ -25,10 +25,10 @@ export async function generarTextoApi(
   const stream = cliente().messages.stream(
     {
       model: MODELO_API,
-      // Objetivo ~1.200–1.500 palabras: tope alineado para no truncar el post y a
-      // la vez acotar el tiempo de generación por debajo de los 60s del plan Hobby
-      // de Vercel (con el selector de un idioma por generación).
-      max_tokens: 7000,
+      // HTML por CLASES (sin estilos inline): la salida es casi todo texto, así que
+      // 1.500–2.500 palabras caben en ~3.000–5.000 tokens y generan por debajo de
+      // los 60s del plan Hobby. Tope holgado para no truncar el post.
+      max_tokens: 8000,
       system: [{ type: "text", text: sistema, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: usuario }],
     },

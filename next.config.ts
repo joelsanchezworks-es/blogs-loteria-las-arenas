@@ -8,6 +8,8 @@ const nextConfig: NextConfig = {
     "/api/generar": ["./referencias/**"],
     "/api/detectar": ["./referencias/**"],
     "/api/reglas": ["./referencias/**"],
+    // La ruta ZIP lee public/arenas.css para incluirlo en el paquete.
+    "/api/zip": ["./public/arenas.css"],
   },
 };
 

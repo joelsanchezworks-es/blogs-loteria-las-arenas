@@ -63,15 +63,13 @@ el paso 2; si no, cópiala desde **Storage → tu base de datos → `.env.local`
 
 ### 4. Plan Hobby (gratuito) — compatible
 
-El prompt genera posts de **~1.200–1.500 palabras**, un tamaño pensado para que la
-generación entre en el límite de **60 s** del plan gratuito (Hobby) de Vercel
-(`maxDuration = 60`). Además, el **selector de un idioma por generación** (por
-defecto Español) evita encadenar varias generaciones seguidas. Si un post puntual
-se acercara al límite, reintenta con **Regenerar**.
-
-Para posts más largos (guías de 2.500+ palabras) haría falta plan **Pro** (subir
-`maxDuration` a 300 en `src/app/api/generar/route.ts`) o generarlos en **local**
-(modo CLI, sin límite de tiempo).
+Los posts usan **clases CSS**, no estilos inline: el diseño vive en un archivo
+global (`public/arenas.css`) que se pega **una sola vez** en GAdmin. Así el HTML
+generado es casi todo contenido (≈8 caracteres por palabra en vez de ≈22), la
+generación usa muchos menos tokens y **entra de sobra en los 60 s** del plan
+gratuito (`maxDuration = 60`) incluso con posts largos (1.500–2.500 palabras).
+El **selector de un idioma por generación** (por defecto Español) evita encadenar
+generaciones. Si un post puntual se acercara al límite, reintenta con **Regenerar**.
 
 ### 5. Deploy
 
@@ -83,8 +81,9 @@ sin ellas). Listo.
 1. Importar el repo.
 2. **Storage → Create Database → Postgres → Connect** (pone `POSTGRES_URL`).
 3. **Settings → Environment Variables → añadir `ANTHROPIC_API_KEY`**.
-4. El plan **gratuito (Hobby)** es suficiente con los posts de ~1.200–1.500
-   palabras (`maxDuration = 60`).
+4. El plan **gratuito (Hobby)** es suficiente: el HTML por clases mantiene la
+   generación por debajo de 60 s (`maxDuration = 60`). Pega `public/arenas.css`
+   **una vez** en el CSS global de GAdmin.
 5. **Deploy.**
 
 ---
@@ -139,9 +138,13 @@ La interfaz tiene dos columnas (entrada / salida) y tres pestañas: **Generador*
 4. Pulsa **✦ Generar HTML**. Verás el progreso en tiempo real.
 5. La salida agrupa los resultados en **pestañas por idioma** (ES · CA · EN). En cada una tienes
    pestañas **Vista previa / Código**, el bloque de **meta title / meta description**
-   copiables, y los botones **Copiar HTML**, **Descargar .html** y **Regenerar**
-   (más **Abrir carpeta** en modo local). **Regenerar** rehace solo ese idioma sin
-   perder los otros. Con varios posts, **Descargar todos (ZIP)**.
+   copiables, y los botones **Copiar HTML**, **Copiar CSS (1 vez)**, **Descargar .html**
+   y **Regenerar** (más **Abrir carpeta** en modo local). Con varios posts, **Descargar
+   todos (ZIP)**, que incluye `arenas.css`.
+6. **En GAdmin:** pega el **HTML** del post en el cuerpo de la entrada; y **una sola
+   vez**, pega el **CSS** (`arenas.css`, botón "Copiar CSS") en los estilos globales
+   de GAdmin. El diseño lo aplica el CSS a las clases del HTML — no hay que repetirlo
+   en cada post.
 
 Las entradas por texto y por archivo se pueden usar por separado o combinadas.
 Los trabajos se procesan **de uno en uno** (secuencial): si sueltas 6 PDFs, no se
@@ -196,9 +199,10 @@ memoria (unpdf/mammoth) para extraer el texto y se descartan.
 El prompt incluye `reglas-estilo.md` + la plantilla como referencia y estas normas:
 
 - Devuelve **solo** el HTML del cuerpo (sin `<!DOCTYPE>/<html>/<head>/<body>`, sin
-  vallas markdown ni comentarios). Todo con estilos **inline**.
+  vallas markdown ni comentarios). Usa **clases CSS** (de `public/arenas.css`), NADA
+  de estilos inline: el HTML es solo contenido y el diseño lo pone el CSS global.
 - `meta title` (≤60) y `meta description` (≤155) se devuelven aparte, no en el HTML.
-- Artículo de **~1.200–1.500 palabras** salvo indicación contraria. Entradilla, `H2` por bloque, CTA final.
+- Artículo de **~1.500–2.500 palabras** salvo indicación contraria. Entradilla, `H2` por bloque, CTA final.
 - Español natural de España (o el idioma elegido).
 - **No inventa datos:** fechas, precios, importes y plazos solo salen del input; si
   falta un dato clave, deja el hueco visible `[[FALTA: …]]`.

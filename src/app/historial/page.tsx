@@ -416,7 +416,7 @@ function ModalVer({
           {html === null ? (
             <p className="py-10 text-center text-sm text-tenue">Cargando…</p>
           ) : pestana === "vista" ? (
-            <iframe title="Vista previa" srcDoc={html} className="h-[70vh] w-full rounded-lg border border-borde bg-white" />
+            <iframe title="Vista previa" srcDoc={`<!doctype html><link rel="stylesheet" href="/arenas.css"><style>html,body{margin:0}</style>${html}`} className="h-[70vh] w-full rounded-lg border border-borde bg-noche" />
           ) : (
             <pre className="max-h-[70vh] overflow-auto rounded-lg border border-borde bg-noche p-3 text-xs leading-relaxed text-claro/90">
               <code>{html}</code>

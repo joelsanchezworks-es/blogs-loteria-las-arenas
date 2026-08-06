@@ -47,7 +47,7 @@ type Fase = "idle" | "detectando" | "confirmar" | "trabajando";
 
 const EXT_OK = [".pdf", ".docx", ".txt", ".md", ".html", ".htm"];
 
-// Siempre se generan los tres idiomas, un post por idioma. No hay selector.
+// Idiomas disponibles en el selector (se elige uno por generación).
 const IDIOMAS_TODOS: Idioma[] = ["es", "ca", "en"];
 const IDIOMA_COD: Record<Idioma, string> = { es: "ES", ca: "CA", en: "EN" };
 const IDIOMA_LABEL: Record<Idioma, string> = { es: "Español", ca: "Català", en: "English" };
@@ -157,6 +157,16 @@ export default function Generador({
       /* sin clipboard */
     }
   }, []);
+
+  // Copia el CSS global de Las Arenas (arenas.css). Se pega UNA vez en GAdmin.
+  const copiarCss = useCallback(async () => {
+    try {
+      const r = await fetch("/arenas.css");
+      await copiar(await r.text(), "css");
+    } catch {
+      /* nada */
+    }
+  }, [copiar]);
 
   /* ── Añadir / quitar archivos (sin subida: se envían al generar) ── */
   const agregar = useCallback((lista: FileList | File[]) => {
@@ -695,6 +705,7 @@ export default function Generador({
                 modoLocal={modoLocal}
                 idioma={fuentesLote[seleccion]?.idioma}
                 onCopiarHtml={() => jobSel.resultado && copiar(jobSel.resultado.html, "html")}
+                onCopiarCss={copiarCss}
                 onCopiarMt={() => jobSel.resultado && copiar(jobSel.resultado.meta.metaTitle, "mt")}
                 onCopiarMd={() => jobSel.resultado && copiar(jobSel.resultado.meta.metaDescription, "md")}
                 onDescargar={() => jobSel.resultado && descargar(jobSel.resultado)}
@@ -716,7 +727,7 @@ function EstadoVacio() {
     <div className="flex min-h-[360px] flex-col items-center justify-center rounded-lg border border-dashed border-borde px-6 text-center">
       <div className="mb-3 h-[2px] w-9 rounded bg-oro/60" aria-hidden />
       <p className="max-w-xs text-sm leading-relaxed text-tenue">
-        Esperando tema. Sube un archivo o escribe el tema y pulsa Generar; se crean los tres idiomas.
+        Esperando tema. Sube un archivo o escribe el tema, elige idioma y pulsa Generar.
       </p>
     </div>
   );
@@ -898,6 +909,7 @@ function VistaTrabajo({
   modoLocal,
   idioma,
   onCopiarHtml,
+  onCopiarCss,
   onCopiarMt,
   onCopiarMd,
   onDescargar,
@@ -909,6 +921,7 @@ function VistaTrabajo({
   modoLocal: boolean;
   idioma?: Idioma;
   onCopiarHtml: () => void;
+  onCopiarCss: () => void;
   onCopiarMt: () => void;
   onCopiarMd: () => void;
   onDescargar: () => void;
@@ -975,8 +988,8 @@ function VistaTrabajo({
       {pestana === "vista" ? (
         <iframe
           title="Vista previa del post"
-          srcDoc={html}
-          className="h-[480px] w-full rounded-lg border border-borde bg-white"
+          srcDoc={`<!doctype html><link rel="stylesheet" href="/arenas.css"><style>html,body{margin:0}</style>${html}`}
+          className="h-[480px] w-full rounded-lg border border-borde bg-noche"
         />
       ) : (
         <pre className="h-[480px] overflow-auto rounded-lg border border-borde bg-noche p-3 text-xs leading-relaxed text-claro/90">
@@ -993,9 +1006,16 @@ function VistaTrabajo({
 
       <div className="mt-4 flex flex-wrap gap-2">
         <Boton onClick={onCopiarHtml}>{copiado === "html" ? "¡Copiado!" : "Copiar HTML"}</Boton>
+        <Boton onClick={onCopiarCss}>{copiado === "css" ? "¡CSS copiado!" : "Copiar CSS (1 vez)"}</Boton>
         <Boton onClick={onDescargar}>Descargar .html</Boton>
         <Boton onClick={onRegenerar}>Regenerar</Boton>
         {modoLocal && <Boton onClick={onAbrirCarpeta}>Abrir carpeta</Boton>}
+      </div>
+      <div className="mt-3 rounded-md border border-oro/25 bg-oro/5 p-3 text-xs leading-relaxed text-tenue">
+        <span className="font-semibold text-oro/80">Para GAdmin:</span> 1) pega el
+        <span className="text-claro"> HTML</span> en el cuerpo del post; 2) una sola vez, pega el
+        <span className="text-claro"> CSS</span> en los estilos globales de GAdmin. El diseño lo aplica
+        el CSS a las clases del HTML.
       </div>
       <p className="mt-2 text-xs text-tenue">
         {meta.palabras} palabras
