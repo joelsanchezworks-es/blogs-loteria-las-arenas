@@ -1,5 +1,5 @@
 import { almacen } from "./almacen";
-import { contarPalabras, detectarFaltantes } from "./contenido";
+import { contarPalabras, detectarFaltantes, sanitizarEntrada } from "./contenido";
 import { generar, type Emisor } from "./motor";
 import { parsearContenido } from "./parseo";
 import { ensamblarHtml } from "./plantilla-arenas";
@@ -27,13 +27,17 @@ export async function ejecutarTrabajo(
   { emitir, signal }: { emitir: Emisor; signal?: AbortSignal },
 ): Promise<void> {
   try {
-    if (!entrada.texto.trim()) {
+    // Limpia la entrada antes de nada: quita caracteres de control/invisibles,
+    // normaliza saltos de línea y pasa comillas tipográficas a rectas. Así el
+    // prompt (y el JSON del modelo) no se rompen con el calendario completo.
+    const texto = sanitizarEntrada(entrada.texto);
+    if (!texto.trim()) {
       emitir({ tipo: "fin", ok: false, error: "No hay contenido para generar." });
       return;
     }
 
     const { sistema, usuario } = construirPrompt({
-      texto: entrada.texto,
+      texto,
       url: entrada.url,
       idioma: entrada.idioma,
     });
@@ -57,7 +61,7 @@ export async function ejecutarTrabajo(
     const metaDescription = recortar(datos.metaDescription, 155);
 
     const slug =
-      (entrada.url ? slugDesdeUrl(entrada.url) : null) || crearSlug(primeraLinea(entrada.texto));
+      (entrada.url ? slugDesdeUrl(entrada.url) : null) || crearSlug(primeraLinea(texto));
     // Sufijo de idioma para que los posts multi-idioma tengan ids distintos y
     // autodescriptivos (el español, idioma por defecto, se queda sin sufijo).
     const sufijoIdioma = entrada.idioma !== "es" ? `-${entrada.idioma}` : "";
@@ -70,7 +74,7 @@ export async function ejecutarTrabajo(
         html,
         metaTitle,
         metaDescription,
-        tema: entrada.texto,
+        tema: texto,
         urlDestino: entrada.url,
         idioma: entrada.idioma,
         palabras,

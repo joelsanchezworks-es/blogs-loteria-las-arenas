@@ -62,23 +62,51 @@ function arr(v: unknown): string[] {
   return s ? [s] : [];
 }
 
-/** Parsea el CONTENIDO del post (objeto JSON del modelo) en ContenidoPost. */
-export function parsearContenido(salida: string): ContenidoPost | null {
+/**
+ * Sustituye por espacios los caracteres de control crudos (saltos de línea o
+ * tabuladores sin escapar dentro de las cadenas) que el modelo a veces mete y
+ * que rompen JSON.parse. En JSON válido esos caracteres van escapados (\n, \t),
+ * así que los crudos son siempre ilegales y pueden neutralizarse sin peligro.
+ */
+function quitarControl(s: string): string {
+  return s.replace(/[\u0000-\u001F\u007F]/g, " ");
+}
+
+/** Extrae el primer objeto/array JSON {...} o [...] envuelto en otro texto. */
+function extraerBloque(s: string, abre: "{" | "["): string | null {
+  const cierra = abre === "{" ? "}" : "]";
+  const i = s.indexOf(abre);
+  const j = s.lastIndexOf(cierra);
+  return i >= 0 && j > i ? s.slice(i, j + 1) : null;
+}
+
+/**
+ * Intenta parsear JSON con varias reparaciones tolerantes (tal cual, sin
+ * caracteres de control, y extrayendo el bloque envuelto). Devuelve el primer
+ * resultado del tipo esperado (objeto o array) o null.
+ */
+function parsearJsonTolerante(salida: string, tipo: "objeto" | "array"): unknown {
+  const abre = tipo === "objeto" ? "{" : "[";
   const limpio = limpiarVallas(salida);
-  let datos: unknown;
-  try {
-    datos = JSON.parse(limpio);
-  } catch {
-    const i = limpio.indexOf("{");
-    const j = limpio.lastIndexOf("}");
-    if (i >= 0 && j > i) {
-      try {
-        datos = JSON.parse(limpio.slice(i, j + 1));
-      } catch {
-        datos = null;
-      }
+  const candidatos = [limpio, quitarControl(limpio)];
+  const bloque = extraerBloque(limpio, abre);
+  if (bloque) candidatos.push(bloque, quitarControl(bloque));
+
+  for (const c of candidatos) {
+    try {
+      const d = JSON.parse(c);
+      const ok = tipo === "array" ? Array.isArray(d) : d && typeof d === "object";
+      if (ok) return d;
+    } catch {
+      /* siguiente candidato */
     }
   }
+  return null;
+}
+
+/** Parsea el CONTENIDO del post (objeto JSON del modelo) en ContenidoPost. */
+export function parsearContenido(salida: string): ContenidoPost | null {
+  const datos = parsearJsonTolerante(salida, "objeto");
   if (!datos || typeof datos !== "object") return null;
   const o = datos as Record<string, unknown>;
   const hero = obj(o.hero);
@@ -127,22 +155,8 @@ export function parsearContenido(salida: string): ContenidoPost | null {
 
 /** Parsea la lista de temas (Modo B): un array JSON de { titulo, datosClave }. */
 export function parsearTemas(salida: string): { titulo: string; datosClave: string }[] {
-  const limpio = limpiarVallas(salida);
-  // Intenta el array completo; si viene envuelto, busca el primer corchete.
-  let datos: unknown;
-  try {
-    datos = JSON.parse(limpio);
-  } catch {
-    const i = limpio.indexOf("[");
-    const j = limpio.lastIndexOf("]");
-    if (i >= 0 && j > i) {
-      try {
-        datos = JSON.parse(limpio.slice(i, j + 1));
-      } catch {
-        datos = null;
-      }
-    }
-  }
+  // Puede venir como array suelto o envuelto en { temas: [...] }.
+  const datos = parsearJsonTolerante(salida, "array") ?? parsearJsonTolerante(salida, "objeto");
   const arr = Array.isArray(datos)
     ? datos
     : Array.isArray((datos as { temas?: unknown[] } | null)?.temas)
