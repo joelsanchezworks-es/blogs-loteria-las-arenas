@@ -126,6 +126,7 @@ export default function Generador({
 
   const inputFile = useRef<HTMLInputElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const seguirRef = useRef(true); // seguir en vivo el trabajo en curso (auto)
   const [fuentesLote, setFuentesLote] = useState<JobFuente[]>([]);
   const [contextoLote, setContextoLote] = useState<ContextoLote | null>(null);
 
@@ -143,6 +144,15 @@ export default function Generador({
       /* nada */
     }
   }, []);
+
+  // Auto-seguimiento: mientras el usuario no toque una pestaña, la vista salta
+  // sola al trabajo que se está generando en ese momento, para ver el progreso
+  // de la cola (ES → CA → EN) en tiempo real sin tener que hacer clic.
+  useEffect(() => {
+    if (!seguirRef.current) return;
+    const i = trabajos.findIndex((t) => t.estado === "generando");
+    if (i >= 0) setSeleccion(i);
+  }, [trabajos]);
 
   const ocupado = fase === "detectando" || fase === "trabajando";
   const hayEntrada = archivos.length > 0 || texto.trim().length > 0;
@@ -255,6 +265,7 @@ export default function Generador({
       if (fuentes.length === 0 || idiomasOrd.length === 0) return;
       setFase("trabajando");
       setSeleccion(0);
+      seguirRef.current = true; // nueva cola: volvemos a seguir el trabajo activo
       setErrorGlobal(null);
       // Expandimos fuentes × idiomas (por fuente). Este orden fija el índice de
       // cada trabajo, que usamos para mostrarlo y para regenerarlo.
@@ -374,9 +385,24 @@ export default function Generador({
     setFase("idle");
   }, []);
 
-  // Selección de idioma ÚNICA: marcar uno deselecciona los demás (máx. 1 por
-  // generación, para no encadenar generaciones y no superar el timeout).
-  const elegirIdioma = useCallback((l: Idioma) => setIdiomas([l]), []);
+  // Selección MÚLTIPLE: marca/desmarca cada idioma (uno, dos o los tres). Se
+  // procesan en cola SECUENCIAL (ES → CA → EN), nunca en paralelo. Mantiene el
+  // orden canónico para que la cola y las etiquetas salgan siempre ordenadas.
+  const alternarIdioma = useCallback((l: Idioma) => {
+    setIdiomas((prev) => {
+      const set = new Set(prev);
+      if (set.has(l)) set.delete(l);
+      else set.add(l);
+      return IDIOMAS_TODOS.filter((x) => set.has(x));
+    });
+  }, []);
+
+  // Cambiar de pestaña/trabajo a mano desactiva el auto-seguimiento del que está
+  // en curso (para no moverle la vista al usuario mientras navega la cola).
+  const seleccionarManual = useCallback((i: number) => {
+    seguirRef.current = false;
+    setSeleccion(i);
+  }, []);
 
   /* ── Botón principal ── */
   const onGenerar = useCallback(() => {
@@ -570,17 +596,18 @@ export default function Generador({
           className="w-full rounded-md border border-borde bg-noche px-3 py-2.5 text-sm text-claro placeholder:text-tenue/70 focus:border-oro/60 focus:outline-none disabled:opacity-60"
         />
 
-        {/* Selector de idioma ÚNICO (máx. 1 por generación): marcar uno
-            deselecciona los demás. Cada generación es un post en su idioma. */}
+        {/* Selector de idioma MÚLTIPLE: marca uno, dos o los tres. Los idiomas
+            marcados se generan en cola secuencial (ES → CA → EN), un post por
+            petición, para no superar el timeout de Vercel Hobby. */}
         <label className="mb-1.5 mt-4 block text-[11px] font-semibold uppercase tracking-[0.18em] text-oro/70">
-          Idioma
+          Idiomas
           <span className="ml-2 font-normal normal-case tracking-normal text-tenue">
-            · un idioma por generación
+            · uno o varios · se generan en cola (ES → CA → EN)
           </span>
         </label>
         <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
           {IDIOMAS_TODOS.map((l) => {
-            const activo = idiomas[0] === l;
+            const activo = idiomas.includes(l);
             return (
               <label
                 key={l}
@@ -592,7 +619,7 @@ export default function Generador({
                   type="checkbox"
                   checked={activo}
                   disabled={ocupado}
-                  onChange={() => elegirIdioma(l)}
+                  onChange={() => alternarIdioma(l)}
                   className="h-4 w-4 accent-[#C9A961]"
                 />
                 {IDIOMA_LABEL[l]}
@@ -600,6 +627,9 @@ export default function Generador({
             );
           })}
         </div>
+        {idiomas.length === 0 && (
+          <p className="mt-1.5 text-xs text-amber-300/90">Marca al menos un idioma.</p>
+        )}
 
         <button
           type="button"
@@ -642,6 +672,7 @@ export default function Generador({
           <EditorTemas
             temas={temas}
             setTemas={setTemas}
+            idiomas={idiomas}
             onConfirmar={confirmarTemas}
             onCancelar={() => setFase("idle")}
           />
@@ -671,7 +702,7 @@ export default function Generador({
                 idiomas={idiomasPresentes}
                 activo={idiomaActivo}
                 estadoDe={(idi) => estadoIdioma(indicesIdioma(idi), trabajos)}
-                onSelect={(idi) => setSeleccion(indicesIdioma(idi)[0] ?? 0)}
+                onSelect={(idi) => seleccionarManual(indicesIdioma(idi)[0] ?? 0)}
               />
             )}
 
@@ -684,7 +715,7 @@ export default function Generador({
                   estado: trabajos[i].estado,
                 }))}
                 seleccion={seleccion}
-                onSelect={setSeleccion}
+                onSelect={seleccionarManual}
               />
             )}
 
@@ -716,7 +747,7 @@ function EstadoVacio() {
     <div className="flex min-h-[360px] flex-col items-center justify-center rounded-lg border border-dashed border-borde px-6 text-center">
       <div className="mb-3 h-[2px] w-9 rounded bg-oro/60" aria-hidden />
       <p className="max-w-xs text-sm leading-relaxed text-tenue">
-        Esperando tema. Sube un archivo o escribe el tema, elige idioma y pulsa Generar.
+        Esperando tema. Sube un archivo o escribe el tema, elige idiomas y pulsa Generar.
       </p>
     </div>
   );
@@ -746,11 +777,13 @@ function Progreso({ titulo, pasos }: { titulo: string; pasos: string[] }) {
 function EditorTemas({
   temas,
   setTemas,
+  idiomas,
   onConfirmar,
   onCancelar,
 }: {
   temas: TemaUI[];
   setTemas: React.Dispatch<React.SetStateAction<TemaUI[]>>;
+  idiomas: Idioma[];
   onConfirmar: () => void;
   onCancelar: () => void;
 }) {
@@ -759,12 +792,15 @@ function EditorTemas({
   const alternar = (i: number) =>
     setTemas((prev) => prev.map((t, k) => (k === i ? { ...t, incluir: !t.incluir } : t)));
   const incluidos = temas.filter((t) => t.incluir).length;
+  const nIdiomas = idiomas.length || 1;
+  const codigos = IDIOMAS_TODOS.filter((l) => idiomas.includes(l)).map((l) => IDIOMA_COD[l]).join(" · ");
 
   return (
     <div>
       <p className="mb-3 text-sm text-claro">
         Se han detectado <strong className="text-oro">{temas.length}</strong> temas. Revisa, edita o
-        descarta y confirma para generar (cada tema, en los 3 idiomas).
+        descarta y confirma para generar (cada tema, en {nIdiomas === 1 ? "1 idioma" : `${nIdiomas} idiomas`}
+        {codigos ? `: ${codigos}` : ""}).
       </p>
       <ul className="max-h-[380px] space-y-2 overflow-auto pr-1">
         {temas.map((t, i) => (
@@ -807,7 +843,8 @@ function EditorTemas({
           disabled={incluidos === 0}
           className="flex-1 rounded-md bg-oro px-4 py-2.5 text-sm font-bold uppercase tracking-[0.1em] text-noche hover:opacity-90 disabled:opacity-40"
         >
-          Generar {incluidos} tema{incluidos === 1 ? "" : "s"} × 3 idiomas
+          Generar {incluidos} tema{incluidos === 1 ? "" : "s"} × {nIdiomas} idioma
+          {nIdiomas === 1 ? "" : "s"}
         </button>
         <button
           type="button"
