@@ -1,5 +1,3 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import { zipSync, strToU8 } from "fflate";
 import { almacen } from "@/lib/almacen";
 
@@ -44,19 +42,6 @@ export async function POST(req: Request) {
       status: 404,
       headers: { "Content-Type": "application/json" },
     });
-  }
-
-  // Incluye el CSS global una vez (se pega en GAdmin), para que el ZIP sea autónomo.
-  try {
-    const css = await fs.readFile(path.join(process.cwd(), "public", "arenas.css"), "utf8");
-    archivos["arenas.css"] = strToU8(css);
-    archivos["LEEME.txt"] = strToU8(
-      "Cada carpeta tiene el post.html (contenido con clases) y su meta.json.\n" +
-        "Pega arenas.css UNA sola vez en los estilos globales de GAdmin; luego pega\n" +
-        "el HTML de cada post en su entrada. El diseño lo aplica el CSS a las clases.\n",
-    );
-  } catch {
-    /* sin CSS: seguimos con los posts */
   }
 
   const zip = zipSync(archivos, { level: 6 });

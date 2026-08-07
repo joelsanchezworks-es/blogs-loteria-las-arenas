@@ -25,10 +25,11 @@ export async function generarTextoApi(
   const stream = cliente().messages.stream(
     {
       model: MODELO_API,
-      // HTML por CLASES (sin estilos inline): la salida es casi todo texto, así que
-      // 1.500–2.500 palabras caben en ~3.000–5.000 tokens y generan por debajo de
-      // los 60s del plan Hobby. Tope holgado para no truncar el post.
-      max_tokens: 8000,
+      // El modelo devuelve SOLO el contenido en JSON (sin HTML ni estilos): 1.500–
+      // 2.000 palabras caben en ~2.500–3.500 tokens y generan en ~25–35s, muy por
+      // debajo de los 60s de Hobby. Tope para no truncar el JSON (romperlo lo haría
+      // ilegible).
+      max_tokens: 4000,
       system: [{ type: "text", text: sistema, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: usuario }],
     },

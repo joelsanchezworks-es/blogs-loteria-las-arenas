@@ -1,8 +1,9 @@
 import { almacen } from "./almacen";
-import { contarPalabras, detectarFaltantes, tituloDesdeHtml } from "./contenido";
+import { contarPalabras, detectarFaltantes } from "./contenido";
 import { generar, type Emisor } from "./motor";
-import { parsearSalida } from "./parseo";
-import { construirPrompt, leerReferencias, type Idioma } from "./prompt";
+import { parsearContenido } from "./parseo";
+import { ensamblarHtml } from "./plantilla-arenas";
+import { construirPrompt, type Idioma } from "./prompt";
 import { crearSlug, fechaCorta, primeraLinea, slugDesdeUrl } from "./slug";
 
 export type EntradaGeneracion = {
@@ -31,25 +32,29 @@ export async function ejecutarTrabajo(
       return;
     }
 
-    const refs = await leerReferencias();
-    const { sistema, usuario } = construirPrompt(
-      { texto: entrada.texto, url: entrada.url, idioma: entrada.idioma },
-      refs,
-    );
+    const { sistema, usuario } = construirPrompt({
+      texto: entrada.texto,
+      url: entrada.url,
+      idioma: entrada.idioma,
+    });
 
+    // El modelo devuelve SOLO el contenido en JSON (rápido, sin estilos).
     const salida = await generar(sistema, usuario, { emitir, signal });
-    const parsed = parsearSalida(salida);
-    const html = parsed.html;
-    if (!html) {
-      emitir({ tipo: "fin", ok: false, error: "El modelo no devolvió un HTML válido." });
+    const datos = parsearContenido(salida);
+    if (!datos) {
+      emitir({ tipo: "fin", ok: false, error: "El modelo no devolvió un JSON de contenido válido." });
       return;
     }
 
+    // La plantilla fija monta el HTML con el diseño (instantáneo, no depende del modelo).
+    emitir({ tipo: "paso", texto: "Montando el HTML…" });
+    const html = ensamblarHtml(datos, entrada.url);
+
     const palabras = contarPalabras(html);
     const faltantes = detectarFaltantes(html);
-    const titulo = parsed.titulo || tituloDesdeHtml(html) || "Post";
-    const metaTitle = recortar(parsed.metaTitle, 60);
-    const metaDescription = recortar(parsed.metaDescription, 155);
+    const titulo = datos.titulo || "Post";
+    const metaTitle = recortar(datos.metaTitle, 60);
+    const metaDescription = recortar(datos.metaDescription, 155);
 
     const slug =
       (entrada.url ? slugDesdeUrl(entrada.url) : null) || crearSlug(primeraLinea(entrada.texto));

@@ -63,13 +63,15 @@ el paso 2; si no, cópiala desde **Storage → tu base de datos → `.env.local`
 
 ### 4. Plan Hobby (gratuito) — compatible
 
-Los posts usan **clases CSS**, no estilos inline: el diseño vive en un archivo
-global (`public/arenas.css`) que se pega **una sola vez** en GAdmin. Así el HTML
-generado es casi todo contenido (≈8 caracteres por palabra en vez de ≈22), la
-generación usa muchos menos tokens y **entra de sobra en los 60 s** del plan
-gratuito (`maxDuration = 60`) incluso con posts largos (1.500–2.500 palabras).
-El **selector de un idioma por generación** (por defecto Español) evita encadenar
-generaciones. Si un post puntual se acercara al límite, reintenta con **Regenerar**.
+El modelo **solo genera el CONTENIDO en JSON** (texto, sin HTML ni estilos); una
+**plantilla fija en TypeScript** (`src/lib/plantilla-arenas.ts`) monta después el
+HTML con el diseño de Las Arenas, de forma instantánea. Así la respuesta del
+modelo es pequeña (~2.500–3.500 tokens para 1.500–2.000 palabras) y **el timeout
+es imposible**: genera en ~25–40 s, muy por debajo de los 60 s del plan gratuito
+(`maxDuration = 60`), sin importar lo largo que sea el post. El HTML resultante es
+**autocontenido** (estilos inline): se pega tal cual en GAdmin, una sola cosa por
+post. El **selector de un idioma por generación** (por defecto Español) evita
+encadenar generaciones.
 
 ### 5. Deploy
 
@@ -82,8 +84,8 @@ sin ellas). Listo.
 2. **Storage → Create Database → Postgres → Connect** (pone `POSTGRES_URL`).
 3. **Settings → Environment Variables → añadir `ANTHROPIC_API_KEY`**.
 4. El plan **gratuito (Hobby)** es suficiente: el HTML por clases mantiene la
-   generación por debajo de 60 s (`maxDuration = 60`). Pega `public/arenas.css`
-   **una vez** en el CSS global de GAdmin.
+   generación por debajo de 60 s (`maxDuration = 60`): el modelo solo produce
+   JSON y una plantilla fija monta el HTML.
 5. **Deploy.**
 
 ---
@@ -138,13 +140,10 @@ La interfaz tiene dos columnas (entrada / salida) y tres pestañas: **Generador*
 4. Pulsa **✦ Generar HTML**. Verás el progreso en tiempo real.
 5. La salida agrupa los resultados en **pestañas por idioma** (ES · CA · EN). En cada una tienes
    pestañas **Vista previa / Código**, el bloque de **meta title / meta description**
-   copiables, y los botones **Copiar HTML**, **Copiar CSS (1 vez)**, **Descargar .html**
-   y **Regenerar** (más **Abrir carpeta** en modo local). Con varios posts, **Descargar
-   todos (ZIP)**, que incluye `arenas.css`.
-6. **En GAdmin:** pega el **HTML** del post en el cuerpo de la entrada; y **una sola
-   vez**, pega el **CSS** (`arenas.css`, botón "Copiar CSS") en los estilos globales
-   de GAdmin. El diseño lo aplica el CSS a las clases del HTML — no hay que repetirlo
-   en cada post.
+   copiables, y los botones **Copiar HTML**, **Descargar .html** y **Regenerar** (más
+   **Abrir carpeta** en modo local). Con varios posts, **Descargar todos (ZIP)**.
+6. **En GAdmin:** pega el **HTML** del post en el cuerpo de la entrada. El HTML es
+   **autocontenido** (lleva su propio diseño inline): no hay que pegar nada más.
 
 Las entradas por texto y por archivo se pueden usar por separado o combinadas.
 Los trabajos se procesan **de uno en uno** (secuencial): si sueltas 6 PDFs, no se
@@ -196,13 +195,15 @@ memoria (unpdf/mammoth) para extraer el texto y se descartan.
 
 ## Reglas de la generación (resumen)
 
-El prompt incluye `reglas-estilo.md` + la plantilla como referencia y estas normas:
+El modelo devuelve **solo el contenido en JSON** (título, intro, ventajas, cómo
+comprar, cita, 4 FAQs, CTA…); una plantilla fija (`src/lib/plantilla-arenas.ts`)
+lo convierte en el HTML autocontenido (estilos inline) con el diseño de la casa.
+Normas de contenido:
 
-- Devuelve **solo** el HTML del cuerpo (sin `<!DOCTYPE>/<html>/<head>/<body>`, sin
-  vallas markdown ni comentarios). Usa **clases CSS** (de `public/arenas.css`), NADA
-  de estilos inline: el HTML es solo contenido y el diseño lo pone el CSS global.
-- `meta title` (≤60) y `meta description` (≤155) se devuelven aparte, no en el HTML.
-- Artículo de **~1.500–2.500 palabras** salvo indicación contraria. Entradilla, `H2` por bloque, CTA final.
+- Nada de HTML ni estilos en la respuesta del modelo: solo el JSON del texto.
+- `meta title` (≤60) y `meta description` (≤155) van en el JSON, no en el HTML.
+- Artículo de **~1.500–2.000 palabras** salvo indicación contraria. Entradilla, `H2` por bloque, CTA final.
+- Los DATOS (fechas, precios, importes) se marcan con `**…**` en el texto y la plantilla los pinta en dorado.
 - Español natural de España (o el idioma elegido).
 - **No inventa datos:** fechas, precios, importes y plazos solo salen del input; si
   falta un dato clave, deja el hueco visible `[[FALTA: …]]`.

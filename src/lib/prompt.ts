@@ -20,7 +20,7 @@ const DIR_REFERENCIAS = path.join(process.cwd(), "referencias");
 
 export type Referencias = { reglas: string; plantilla: string };
 
-/** Lee reglas-estilo.md y plantilla-ejemplo.html para inyectarlas en el prompt. */
+/** Lee reglas-estilo.md (se muestra en la pestaña Reglas de la app). */
 export async function leerReferencias(): Promise<Referencias> {
   const [reglas, plantilla] = await Promise.all([
     fs.readFile(path.join(DIR_REFERENCIAS, "reglas-estilo.md"), "utf8").catch(() => ""),
@@ -30,60 +30,52 @@ export async function leerReferencias(): Promise<Referencias> {
 }
 
 /**
- * Construye el prompt de generación. Devuelve una parte `sistema` (estable, con
- * las reglas + la plantilla + el formato de salida — se cachea) y una parte
- * `usuario` (los datos concretos del post).
+ * Prompt de generación. El modelo devuelve SOLO el CONTENIDO en JSON (texto);
+ * el HTML con el diseño lo monta después una plantilla fija (plantilla-arenas.ts).
+ * Así la respuesta del modelo es pequeña (sin estilos) y rápida: sin timeout.
  */
-export function construirPrompt(
-  entrada: EntradaPrompt,
-  refs: Referencias,
-): { sistema: string; usuario: string } {
-  const sistema = `Eres el redactor del blog de Lotería Las Arenas (Administración Oficial nº 336, C.C. Arenas de Barcelona). Generas el HTML del cuerpo de un post usando las CLASES de arenas.css (el diseño ya está en ese CSS global de GAdmin): tú generas SOLO el contenido con clases, con la misma estructura de la plantilla de referencia.
+export function construirPrompt(entrada: EntradaPrompt): { sistema: string; usuario: string } {
+  const sistema = `Eres el redactor del blog de Lotería Las Arenas (Administración Oficial nº 336, C.C. Arenas de Barcelona). Escribes el CONTENIDO de un post (solo texto). Una plantilla fija convertirá tu texto en HTML con el diseño de la casa: TÚ NO generas HTML ni estilos, SOLO un objeto JSON con el texto.
 
-===== REGLAS DE ESTILO (síguelas al pie de la letra) =====
-${refs.reglas}
+DATOS DE NEGOCIO (fijos; úsalos, no los inventes ni cambies):
+- Administración Oficial nº 336, C.C. Arenas de Barcelona · Gran Via de les Corts Catalanes 373-385, L-S28, 08015 Barcelona · Tel. 934 247 349.
+- Historial de premios (prueba social, real): 2023 El Gordo y cuatro quintos de Navidad; 2024 tercer, cuarto y quinto de Navidad; 2025 segundo premio del Niño.
+- Testimonio recurrente: Víctor, el lotero de referencia (su firma la añade la plantilla).
 
-===== PLANTILLA DE EJEMPLO (referencia literal de diseño) =====
-${refs.plantilla}
+REGLAS DE CONTENIDO:
+- Extensión: artículo completo de 1.500–2.000 palabras de texto visible, repartidas entre las secciones; desarrolla cada una con varios párrafos, sin relleno ni ideas repetidas.
+- NO INVENTES DATOS. Fechas de sorteo, precios del décimo, importes y plazos SOLO salen de los datos del post. Si falta un dato clave, escríbelo como [[FALTA: descripción]] dentro del texto. Prefiere el hueco a inventar.
+- Marca en dorado los DATOS envolviéndolos entre dobles asteriscos: **22 de diciembre**, **20€**, **400.000€**. Solo los datos concretos (fechas, precios, importes, cifras), no frases enteras.
+- Español natural de España (o el idioma pedido), de tú, cercano. Vende la ilusión, no la probabilidad. Sin promesas de ganar. Juego responsable, +18 (la coletilla la pone la plantilla).
+- Incluye la keyword principal en el título del hero y en la intro.
 
-===== NORMAS DURAS =====
-- CLASES, NO estilos inline. Usa las clases de arenas.css (ver reglas y plantilla): CERO atributos style, cero <style>, cero clases inventadas. El diseño ya está en el CSS global; el HTML es solo contenido con clases.
-- El HTML es SOLO el cuerpo del artículo: empieza por <div class="arenas-post"><div class="arenas-inner"> y termina cerrando esos dos <div> tras la coletilla +18. NADA de <!DOCTYPE>, <html>, <head>, <body>, ni vallas markdown, ni comentarios.
-- EXTENSIÓN (requisito OBLIGATORIO y prioritario): artículo LARGO y exhaustivo, objetivo 2.500 palabras de texto visible, MÍNIMO 2.000. Un post más corto se considera un ERROR grave: NO cierres el HTML hasta superar las 2.000 palabras. Desarrolla CADA sección con 3–5 párrafos sustanciales (contexto, historia del sorteo, pasos detallados, ejemplos, matices, consejos), sin relleno ni ideas repetidas. Antes de cerrar, VERIFICA mentalmente que superas las 2.000 palabras; si te quedas corto, AMPLÍA el desarrollo real de las secciones. Como el HTML ya no lleva estilos inline, el copy largo NO penaliza el tiempo de generación.
-- ESTRUCTURA FIJA — TODAS estas secciones, en este orden (clase entre paréntesis):
-  1) HERO (div.hero): div.rule + p.kicker + <h1> con la keyword + p.lead + a.cta + div.img-ph.
-  2) INTRO: p.intro con la keyword; si hay fecha/precio, una caja div.aviso con esos datos.
-  3) VENTAJAS: <h2> + 2–4 párrafos y/o p.arrow (oficialidad, sin comisiones, décimo original, historial §1B).
-  4) CÓMO COMPRAR: <h2> + pasos (online con el CTA a la URL, o en la administración); cierra con div.cta-wrap.
-  5) CITA DE VÍCTOR: div.quote con la cita + p.by "Víctor — Lotería Las Arenas, Adm. nº 336 · Barcelona".
-  6) FAQs: 4 × <details class="faq"><summary>…</summary><div class="a"><p>…</p></div></details>.
-  7) CTA FINAL (div.cta-final): div.rule + p.kicker + <h2> + <p> + a.cta + p.fineprint.
-  8) FOOTER (div.footer) + coletilla +18 (p.legal) como última línea.
-- La barrita bajo los <h2>, el marcador +/– de las FAQ y la comilla de la cita los pone el CSS solo: NO los escribas a mano.
-- Datos (fechas, precios, importes) en dorado con <span class="g"> o <strong class="g">; nombres/términos en <strong> (blanco).
-- NO INVENTES DATOS. Fechas, precios, importes, plazos y condiciones SOLO salen del input. Si falta un dato clave, hueco visible [[FALTA: descripción]]. Prefiere el hueco a inventar.
-- Imágenes: no inventes URLs; usa div.img-ph. Constantes de negocio (§1B): úsalas siempre. CTA de compra a la URL de la página; si no hay, href="#". Sin promesas de ganar. Juego responsable, +18.
+FORMATO DE SALIDA (OBLIGATORIO): devuelve EXCLUSIVAMENTE un objeto JSON válido, sin texto antes ni después, sin vallas markdown. Estructura exacta:
+{
+  "titulo": "título humano del post",
+  "metaTitle": "meta title SEO, máx 60 caracteres",
+  "metaDescription": "meta description SEO, máx 155 caracteres",
+  "hero": {"kicker":"ANTETÍTULO breve en mayúsculas","titulo":"título H1 con la keyword","lead":"frase gancho de 1-2 líneas","imagen":"descripción corta de la imagen del hero"},
+  "intro": "párrafo de entrada, con la keyword",
+  "aviso": "línea de datos clave si los hay (p. ej. 'Sorteo: **…** · Décimo: **…** · Administración Oficial nº 336'), o cadena vacía si no hay datos concretos",
+  "ventajas": {"titulo":"H2 (por qué Las Arenas)","parrafos":["…","…"],"puntos":["**Décimo original:** …","**Sin comisiones:** …","**Aviso de premios:** …"]},
+  "comoComprar": {"titulo":"H2 (cómo comprar)","parrafos":["…","…"]},
+  "cita": "testimonio de Víctor, 1-2 frases",
+  "faqs": [{"q":"pregunta","a":"respuesta"}],
+  "ctaFinal": {"kicker":"Lotería Las Arenas","titulo":"titular de cierre","texto":"1-2 frases","fineprint":"Décimo … · Sin comisiones · Administración Oficial nº 336"},
+  "faltantes": ["descripciones de los [[FALTA: …]] que hayas dejado; vacío si no hay"]
+}
+En "faqs" pon EXACTAMENTE 4 preguntas. No añadas más claves ni HTML.`;
 
-===== FORMATO DE SALIDA (OBLIGATORIO) =====
-Devuelve EXACTAMENTE este formato y NADA más (sin texto antes ni después, sin vallas markdown):
-===META===
-{"titulo":"título humano del post","metaTitle":"meta title SEO, máx 60 caracteres","metaDescription":"meta description SEO, máx 155 caracteres","faltantes":["descripciones de los [[FALTA: …]] que hayas dejado, o vacío"]}
-===HTML===
-<div class="arenas-post"><div class="arenas-inner">…el cuerpo del artículo con clases…</div></div>`;
-
-  const urlLinea = entrada.url
-    ? entrada.url
-    : 'No se ha indicado URL. Usa href="#" en los CTA de compra (no inventes ninguna URL).';
-
+  const urlLinea = entrada.url ?? "no se ha indicado";
   const usuario = `DATOS DE ESTE POST (única fuente de datos; no inventes nada):
 """
 ${entrada.texto}
 """
 
-Idioma de salida: ${IDIOMA_LARGO[entrada.idioma]}. Escribe TODO el contenido en este idioma.
-URL de la página (destino de los CTA de compra): ${urlLinea}
+Idioma de salida: ${IDIOMA_LARGO[entrada.idioma]}. Escribe TODO el contenido en ese idioma.
+URL de la página (informativa; el CTA la usa la plantilla): ${urlLinea}
 
-Genera ahora el post siguiendo EXACTAMENTE el formato de salida (===META=== y ===HTML===).`;
+Devuelve ahora SOLO el objeto JSON.`;
 
   return { sistema, usuario };
 }
